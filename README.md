@@ -65,7 +65,7 @@ npm run build
 
 ## Stack
 
-Next.js 16 (App Router, route handlers), React 19, TypeScript, Tailwind CSS 4, Google Gen AI SDK, Vitest.
+Next.js 16 (App Router, route handlers), React 19, TypeScript, Tailwind CSS 4, Framer Motion, Google Gen AI SDK, Vitest.
 
 ## Built with
 

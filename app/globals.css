@@ -1,88 +1,75 @@
 @import "tailwindcss";
 
-/* Paper, ink and one stamp-red accent. Green only marks a finished step. */
+/* Neutral greys with one blue. The four rings use shades of that blue. */
 :root {
-  --paper: #f3efe6;
-  --card: #fbf8f1;
-  --ink: #1d1b17;
-  --ink-2: #5d574c;
-  --line: #ddd5c5;
-  --line-strong: #cfc5b1;
-  --stamp: #c4412a;
-  --pass: #2f6b3f;
+  --bg: #fbfbfd;
+  --surface: #ffffff;
+  --surface-2: #f5f5f7;
+  --text: #1d1d1f;
+  --text-2: #6e6e73;
+  --hairline: rgba(0, 0, 0, 0.08);
+  --accent: #0071e3;
+  --ring-1: #0071e3;
+  --ring-2: #2f8cf0;
+  --ring-3: #64aef7;
+  --ring-4: #9cccfb;
+  --glow: rgba(0, 113, 227, 0.18);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #171612;
-    --card: #201e19;
-    --ink: #ece6d8;
-    --ink-2: #a8a193;
-    --line: #35322b;
-    --line-strong: #4a463d;
-    --stamp: #e8664a;
-    --pass: #86bb92;
+    --bg: #000000;
+    --surface: #161617;
+    --surface-2: #1d1d1f;
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --hairline: rgba(255, 255, 255, 0.1);
+    --accent: #2997ff;
+    --ring-1: #2997ff;
+    --ring-2: #52adff;
+    --ring-3: #84c5ff;
+    --ring-4: #b8ddff;
+    --glow: rgba(41, 151, 255, 0.22);
     color-scheme: dark;
   }
 }
 
 body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-body), system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-.font-display { font-family: var(--font-display), Georgia, serif; }
-.font-mono { font-family: var(--font-mono), ui-monospace, monospace; }
+.font-mono { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; }
 
-/* Faint graph paper behind the hero. */
-.graph-paper {
-  background-image:
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: radial-gradient(ellipse at 70% 40%, black 30%, transparent 75%);
+.headline-gradient {
+  background: linear-gradient(180deg, var(--text) 30%, color-mix(in srgb, var(--text) 55%, var(--accent)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-/* A ticket edge: a dashed tear line with notches cut into both sides. */
-.ticket { position: relative; }
-.ticket::before,
-.ticket::after {
-  content: "";
-  position: absolute;
-  top: 76px;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: var(--paper);
-  border: 1.5px solid var(--ink);
+.accent-gradient {
+  background: linear-gradient(90deg, var(--ring-1), var(--ring-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
-.ticket::before { left: -12px; clip-path: inset(0 0 0 50%); }
-.ticket::after { right: -12px; clip-path: inset(0 50% 0 0); }
 
-@keyframes scan {
-  0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  25% { transform: translate(-14px, 10px) rotate(-3deg); }
-  50% { transform: translate(-4px, 36px) rotate(2deg); }
-  75% { transform: translate(10px, 14px) rotate(-1deg); }
+.glass {
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
-.art-scan { animation: scan 7s ease-in-out infinite; transform-origin: 236px 168px; }
-.art-scan.fast { animation-duration: 2.2s; }
 
-@keyframes stamp-in {
-  0% { transform: scale(1.8) rotate(-24deg); opacity: 0; }
-  60% { transform: scale(0.94) rotate(-9deg); opacity: 1; }
-  100% { transform: scale(1) rotate(-10deg); opacity: 1; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 28px;
 }
-.stamp-in { animation: stamp-in 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
 
-@keyframes grow { from { transform: scaleX(0); } }
-.grow { transform-origin: left; animation: grow 0.8s ease-out both; }
-
-@keyframes pulse-dot { 50% { opacity: 0.25; } }
-.pulse-dot { animation: pulse-dot 1s ease-in-out infinite; }
-
-@media (prefers-reduced-motion: reduce) {
-  .art-scan, .stamp-in, .grow, .pulse-dot { animation: none; }
+@media (prefers-color-scheme: light) {
+  .card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 40px rgba(0, 0, 0, 0.06); }
 }
