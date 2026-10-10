@@ -1,5 +1,6 @@
 import { fetchGithubContext, fetchLiveSiteContext } from "@/lib/context";
 import { createRateLimiter } from "@/lib/rate-limit";
+import { encodeEvent, type ReviewEvent } from "@/lib/events";
 import { generateReview, InvalidKeyError } from "@/lib/review";
 import { parseGithubRepo, parsePublicHttpsUrl } from "@/lib/safe-url";
 
@@ -43,31 +44,71 @@ export async function POST(request: Request) {
   }
 
   const deadline = Date.now() + REVIEW_BUDGET_MS;
-  const [githubContext, liveSiteContext] = await Promise.all([
-    fetchGithubContext(repo.owner, repo.repo, FETCH_TIMEOUT_MS),
-    liveUrl ? fetchLiveSiteContext(liveUrl, FETCH_TIMEOUT_MS) : Promise.resolve(null),
-  ]);
-  if (!githubContext) {
-    return fail(404, "Couldn't read that repository. Check it exists and is public.");
-  }
+  const repository = `${repo.owner}/${repo.repo}`;
 
-  const review = await generateReview(
-    {
-      githubUrl: `https://github.com/${repo.owner}/${repo.repo}`,
-      liveUrl: liveUrl?.toString() ?? null,
-      description,
-      githubContext,
-      liveSiteContext,
+  // Validation errors above return plain JSON with a status code. From here
+  // on the response is a stream of progress events ending in a result or error.
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: ReviewEvent) => controller.enqueue(encodeEvent(event));
+      try {
+        send({ type: "step", step: "repo", status: "running" });
+        send({ type: "step", step: "site", status: liveUrl ? "running" : "skipped" });
+        const [githubContext, liveSiteContext] = await Promise.all([
+          fetchGithubContext(repo.owner, repo.repo, FETCH_TIMEOUT_MS).then((context) => {
+            send({ type: "step", step: "repo", status: context ? "done" : "failed" });
+            return context;
+          }),
+          liveUrl
+            ? fetchLiveSiteContext(liveUrl, FETCH_TIMEOUT_MS).then((context) => {
+                send({ type: "step", step: "site", status: context ? "done" : "failed" });
+                return context;
+              })
+            : Promise.resolve(null),
+        ]);
+        if (!githubContext) {
+          send({ type: "error", error: "Couldn't read that repository. Check it exists and is public." });
+          return;
+        }
+
+        send({ type: "step", step: "review", status: "running" });
+        const review = await generateReview(
+          {
+            githubUrl: `https://github.com/${repository}`,
+            liveUrl: liveUrl?.toString() ?? null,
+            description,
+            githubContext,
+            liveSiteContext,
+          },
+          apiKey,
+          deadline,
+        );
+        if (!review) {
+          send({ type: "step", step: "review", status: "failed" });
+          send({ type: "error", error: "The AI didn't return a usable review. Try again in a minute." });
+          return;
+        }
+        send({ type: "step", step: "review", status: "done" });
+        send({ type: "result", review, repository });
+      } catch (error) {
+        send({ type: "step", step: "review", status: "failed" });
+        send({
+          type: "error",
+          error:
+            error instanceof InvalidKeyError
+              ? visitorKey
+                ? "That Gemini API key isn't valid. Check it and try again."
+                : "The server's Gemini key is misconfigured."
+              : "Something went wrong on the server. Try again.",
+        });
+        if (!(error instanceof InvalidKeyError)) console.error("Review failed", error);
+      } finally {
+        controller.close();
+      }
     },
-    apiKey,
-    deadline,
-  ).catch((error) => {
-    if (!(error instanceof InvalidKeyError)) throw error;
-    return "invalid-key" as const;
   });
-  if (review === "invalid-key") {
-    return fail(visitorKey ? 401 : 500, visitorKey ? "That Gemini API key isn't valid. Check it and try again." : "The server's Gemini key is misconfigured.");
-  }
-  if (!review) return fail(502, "The AI didn't return a usable review. Try again in a minute.");
-  return Response.json({ review, repository: `${repo.owner}/${repo.repo}` });
+
+  return new Response(stream, {
+    headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" },
+  });
 }
