@@ -1,7 +1,6 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import Link from "next/link";
 import { useRef, useState } from "react";
 import type { ReviewEvent, StepId, StepStatus } from "@/lib/events";
 import type { Review } from "@/lib/review-types";
@@ -212,28 +211,13 @@ export default function Home() {
 
   return (
     <div className="min-h-screen overflow-x-clip">
-      <nav className="glass sticky top-0 z-50 border-b border-[var(--hairline)]">
-        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
+      <main>
+        <section className="mx-auto max-w-6xl px-4 pt-20 text-center sm:px-6 sm:pt-28">
+          <motion.p className="flex items-center justify-center gap-2 text-lg font-semibold text-[var(--accent)]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8 }}>
             <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
               <circle cx="12" cy="12" r="9" fill="none" stroke="var(--ring-1)" strokeWidth="3" strokeDasharray="44 100" strokeLinecap="round" transform="rotate(-90 12 12)" />
               <circle cx="12" cy="12" r="4.5" fill="none" stroke="var(--ring-3)" strokeWidth="3" strokeDasharray="20 100" strokeLinecap="round" transform="rotate(-90 12 12)" />
             </svg>
-            Project Reviewer
-          </Link>
-          <div className="flex items-center gap-5 text-sm">
-            <a href="#how" className="hidden text-[var(--text-2)] hover:text-[var(--text)] sm:inline">How it works</a>
-            <a href="https://github.com/aashishgaire999/ai-project-reviewer" className="text-[var(--text-2)] hover:text-[var(--text)]">GitHub</a>
-            <button onClick={() => { formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => inputRef.current?.focus(), 500); }} className="rounded-full bg-[var(--accent)] px-3.5 py-1 text-xs font-medium text-white">
-              Try it
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      <main>
-        <section className="mx-auto max-w-6xl px-4 pt-16 text-center sm:px-6 sm:pt-24">
-          <motion.p className="text-lg font-semibold text-[var(--accent)]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8 }}>
             Project Reviewer
           </motion.p>
           <div className="mt-3"><Headline /></div>
@@ -275,6 +259,22 @@ export default function Home() {
               </motion.button>
             </div>
 
+            <label htmlFor="live" className="sr-only">Live site URL (optional)</label>
+            <div className="mx-auto mt-3 flex max-w-xl items-center gap-3 rounded-full bg-[var(--surface-2)] px-5 transition-shadow focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]">
+              <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-[var(--text-2)]" aria-hidden>
+                <circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M2.5 12h19M12 2.5c2.6 2.6 3.9 5.8 3.9 9.5s-1.3 6.9-3.9 9.5c-2.6-2.6-3.9-5.8-3.9-9.5s1.3-6.9 3.9-9.5Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              </svg>
+              <input
+                id="live"
+                type="url"
+                placeholder="Live site (optional)"
+                value={liveUrl}
+                onChange={(e) => setLiveUrl(e.target.value)}
+                className="min-w-0 flex-1 bg-transparent py-3 text-[15px] outline-none placeholder:text-[var(--text-2)]"
+              />
+            </div>
+
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm">
               <span className="text-[var(--text-2)]">Try</span>
               {EXAMPLES.map((repo) => (
@@ -297,9 +297,8 @@ export default function Home() {
             <AnimatePresence initial={false}>
               {more && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.45, ease: EASE }} className="overflow-hidden">
-                  <div className="card mt-4 grid gap-4 p-5 text-left sm:grid-cols-2">
+                  <div className="card mt-4 grid gap-4 p-5 text-left">
                     {[
-                      { id: "live", label: "Live site", type: "url", placeholder: "https://your-project.com", value: liveUrl, set: setLiveUrl },
                       { id: "description", label: "What it does", type: "text", placeholder: "A habit tracker for…", value: description, set: setDescription },
                     ].map((f) => (
                       <div key={f.id}>
@@ -307,7 +306,7 @@ export default function Home() {
                         <input id={f.id} type={f.type} placeholder={f.placeholder} value={f.value} maxLength={1000} onChange={(e) => f.set(e.target.value)} className="mt-1.5 w-full rounded-xl bg-[var(--surface-2)] px-3.5 py-2.5 text-[15px] outline-none focus:ring-2 focus:ring-[var(--accent)]" />
                       </div>
                     ))}
-                    <div className="sm:col-span-2">
+                    <div>
                       <label htmlFor="key" className="text-sm font-medium">Your Gemini API key</label>
                       <input id="key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="mt-1.5 w-full rounded-xl bg-[var(--surface-2)] px-3.5 py-2.5 text-[15px] outline-none focus:ring-2 focus:ring-[var(--accent)]" />
                       <p className="mt-1.5 text-xs text-[var(--text-2)]">
