@@ -16,6 +16,34 @@ describe("parseReview", () => {
     expect(review.improvements).toEqual([]);
     expect(review.grounded).toBe(grounded);
   });
+  it("accepts numeric strings, rounds, and clamps every breakdown field", () => {
+    const review = parseReview(
+      JSON.stringify({ score: "7.5", breakdown: { code_quality: "9", originality: 99, completeness: null, documentation: "lots" } }),
+      grounded,
+    );
+    expect(review.score).toBe(8);
+    expect(review.breakdown).toEqual({ code_quality: 9, originality: 10, completeness: 0, documentation: 0 });
+  });
+  it("clamps a zero or negative score up to 1", () => {
+    expect(parseReview('{"score": 0}', grounded).score).toBe(1);
+    expect(parseReview('{"score": -4}', grounded).score).toBe(1);
+  });
+  it("caps list length and text length", () => {
+    const review = parseReview(
+      JSON.stringify({ score: 5, strengths: Array.from({ length: 9 }, (_, i) => `s${i}`), summary: "x".repeat(5000), references: "not a list" }),
+      grounded,
+    );
+    expect(review.strengths).toHaveLength(5);
+    expect(review.summary).toHaveLength(600);
+    expect(review.references).toEqual([]);
+  });
+  it("rejects a non-numeric score", () => {
+    expect(() => parseReview('{"score": "great"}', grounded)).toThrow(/no score/);
+    expect(() => parseReview('{"score": null}', grounded)).toThrow(/no score/);
+    expect(() => parseReview('{"score": ""}', grounded)).toThrow(/no score/);
+    expect(() => parseReview('{"score": true}', grounded)).toThrow(/no score/);
+    expect(() => parseReview('{"score": []}', grounded)).toThrow(/no score/);
+  });
   it("rejects output without a score", () => {
     expect(() => parseReview('{"summary": "x"}', grounded)).toThrow(/no score/);
     expect(() => parseReview("no json here", grounded)).toThrow(/no JSON/);

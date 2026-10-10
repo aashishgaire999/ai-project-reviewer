@@ -44,6 +44,10 @@ Score: 1-4 needs major work, 5-6 decent start, 7-8 solid, 9 excellent, 10 except
 }
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(n)));
+// Number(null), Number("") and Number(true) are 0 or 1, which would turn a
+// missing value into a fake score. Only real numbers and numeric strings count.
+const toNumber = (v: unknown) =>
+  typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
 const text = (v: unknown, max = 600) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const list = (v: unknown, max = 5) =>
   Array.isArray(v) ? v.map((item) => text(item, 400)).filter(Boolean).slice(0, max) : [];
@@ -54,11 +58,11 @@ export function parseReview(raw: string, grounded: Review["grounded"]): Review {
   const json = raw.match(/\{[\s\S]*\}/)?.[0];
   if (!json) throw new Error("AI review returned no JSON");
   const data = JSON.parse(json);
-  const score = Number(data?.score);
+  const score = toNumber(data?.score);
   if (!Number.isFinite(score)) throw new Error("AI review returned no score");
   const breakdown = Object.fromEntries(
     CATEGORIES.map((key) => {
-      const value = Number(data?.breakdown?.[key]);
+      const value = toNumber(data?.breakdown?.[key]);
       return [key, Number.isFinite(value) ? clamp(value, 0, 10) : 0];
     }),
   ) as Record<Category, number>;

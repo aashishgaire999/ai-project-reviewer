@@ -29,11 +29,11 @@ The server fetches URLs that visitors type in, which is a classic SSRF risk. Bef
 
 - only accepts `https://` on port 443, with no credentials in the URL
 - rejects private, loopback, link-local, carrier-grade NAT and cloud-metadata addresses, IPv4 and IPv6, including IPv4-mapped IPv6
-- resolves the hostname and rejects it if **any** address is private, so a public name pointing at `10.0.0.5` is blocked
-- follows redirects by hand (max 3) and re-checks every hop
+- resolves the hostname **inside the HTTP client's connect step** (an undici `Agent` with a custom `lookup`) and refuses it if **any** address is private. The socket connects only to the addresses that were just checked, so DNS rebinding (a safe answer for the check, a private one for the connection) has no gap to use
+- follows redirects by hand (max 3) and re-checks every hop's URL; each hop's connection goes through the same pinned lookup
 - reads at most 1 MB of HTML
 
-Known gap: the DNS check and the fetch resolve separately, so a DNS-rebinding attacker could in theory answer differently the second time. Pinning the resolved IP would close it.
+`test/safe-url.test.ts` covers encoded hosts (`2130706433`, `0x7f.0.0.1`, `127.1`, `[::ffff:127.0.0.1]`), the pinned lookup, and a real local server that a plain lookup reaches but the pinned one never connects to.
 
 ## Running it
 
@@ -49,15 +49,16 @@ Open http://localhost:3000.
 |---|---|
 | `GEMINI_API_KEY` | Optional. Lets visitors review without their own key. Without it, visitors paste their own key, used for that request only and never stored. |
 | `REVIEWS_PER_HOUR` | Reviews per IP per hour on the server's key. Default 5. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Optional. Shares the rate limit across all serverless instances. Vercel's Upstash integration sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which also work. |
 | `GEMINI_MODEL`, `GEMINI_FALLBACK_MODELS` | Override the models. |
 | `GITHUB_TOKEN` | Optional. Raises the GitHub API limit from 60 to 5,000 requests an hour. |
 
-The rate limit is kept in memory, so on serverless hosts it slows abuse rather than capping it exactly, and it trusts `x-forwarded-for`, which is only reliable behind a proxy that sets it (Vercel does). Use a shared store before putting a paid key behind a public URL.
+With Upstash configured, the rate limit is shared by every instance. Without it, each instance counts in its own memory, which slows abuse rather than capping it exactly. If Redis is down, the limiter falls back to memory rather than taking the site offline. It keys on `x-forwarded-for`, which is only reliable behind a proxy that sets it (Vercel does).
 
 ## Scripts
 
 ```bash
-npm test          # Vitest: URL safety, review parsing, rate limiting, report export
+npm test          # Vitest: SSRF and DNS pinning, redirects, review parsing, rate limiting, report export
 npm run typecheck
 npm run lint
 npm run build

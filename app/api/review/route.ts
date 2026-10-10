@@ -1,5 +1,5 @@
 import { fetchGithubContext, fetchLiveSiteContext } from "@/lib/context";
-import { createRateLimiter } from "@/lib/rate-limit";
+import { createLimiter } from "@/lib/rate-limit";
 import { encodeEvent, type ReviewEvent } from "@/lib/events";
 import { generateReview, InvalidKeyError } from "@/lib/review";
 import { parseGithubRepo, parsePublicHttpsUrl } from "@/lib/safe-url";
@@ -8,7 +8,7 @@ export const maxDuration = 60;
 
 const FETCH_TIMEOUT_MS = 5_000;
 const REVIEW_BUDGET_MS = 50_000;
-const serverKeyLimit = createRateLimiter(Number(process.env.REVIEWS_PER_HOUR) || 5, 60 * 60 * 1000);
+const serverKeyLimit = createLimiter(Number(process.env.REVIEWS_PER_HOUR) || 5, 60 * 60 * 1000);
 
 const fail = (status: number, error: string, headers?: HeadersInit) => Response.json({ error }, { status, headers });
 
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     apiKey = process.env.GEMINI_API_KEY || "";
     if (!apiKey) return fail(400, "This server has no Gemini key. Paste your own key to run a review.");
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const { allowed, retryAfterSeconds } = serverKeyLimit(ip);
+    const { allowed, retryAfterSeconds } = await serverKeyLimit(ip);
     if (!allowed) {
       return fail(429, `Free review limit reached. Try again in ${Math.ceil(retryAfterSeconds / 60)} min, or paste your own Gemini key.`, {
         "Retry-After": String(retryAfterSeconds),
