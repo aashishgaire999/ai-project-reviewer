@@ -1,4 +1,5 @@
-import { parsePublicHttpsUrl, resolvesPublicly } from "./safe-url";
+import { Agent, fetch as pinnedFetch } from "undici";
+import { parsePublicHttpsUrl, safeLookup } from "./safe-url";
 
 // Gathers what the reviewer actually looks at: repo metadata, README, root
 // files and languages from GitHub, plus the live site's visible text. Every
@@ -7,6 +8,10 @@ import { parsePublicHttpsUrl, resolvesPublicly } from "./safe-url";
 
 const MAX_PAGE_BYTES = 1_000_000;
 const MAX_REDIRECTS = 3;
+
+// Every connection to a visitor-supplied site goes through this agent, so
+// each socket connects only to an address safeLookup has just approved.
+const pinnedAgent = new Agent({ connect: { lookup: safeLookup() } });
 
 async function fetchWithTimeout(url: string, ms: number, init: RequestInit = {}) {
   const controller = new AbortController();
@@ -86,15 +91,24 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   return parts.join("\n") || null;
 }
 
-// Follows redirects by hand so every hop is checked against private addresses.
-async function fetchPublicPage(start: URL, timeoutMs: number): Promise<string | null> {
+// Follows redirects by hand so every hop's URL is re-checked; the pinned
+// agent checks every address actually connected to.
+export async function fetchPublicPage(start: URL, timeoutMs: number, agent: Agent = pinnedAgent): Promise<string | null> {
   let url = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (!(await resolvesPublicly(url.hostname))) return null;
-    const res = await fetchWithTimeout(url.toString(), timeoutMs, {
-      redirect: "manual",
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; AIProjectReviewer/1.0)", Accept: "text/html" },
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res;
+    try {
+      res = await pinnedFetch(url.toString(), {
+        dispatcher: agent,
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; AIProjectReviewer/1.0)", Accept: "text/html" },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (res.status >= 300 && res.status < 400) {
       const next = parsePublicHttpsUrl(new URL(res.headers.get("location") || "", url).toString());
       if (!next) return null;
@@ -107,14 +121,17 @@ async function fetchPublicPage(start: URL, timeoutMs: number): Promise<string | 
   return null;
 }
 
-async function readCapped(res: Response, maxBytes: number) {
+// Typed by the two reader methods used, so it accepts undici's and the DOM's streams alike.
+type ByteReader = { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> };
+
+async function readCapped(res: { body: { getReader(): ByteReader } | null }, maxBytes: number) {
   if (!res.body) return "";
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   while (size < maxBytes) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done || !value) break;
     chunks.push(value);
     size += value.byteLength;
   }

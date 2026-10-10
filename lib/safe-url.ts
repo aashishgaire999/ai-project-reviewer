@@ -59,16 +59,39 @@ export function parseGithubRepo(value: unknown): { owner: string; repo: string }
   return { owner, repo: repo.replace(/\.git$/, "") };
 }
 
-type Lookup = (hostname: string) => Promise<{ address: string }[]>;
-const defaultLookup: Lookup = (hostname) => lookup(hostname, { all: true });
+export type ResolvedAddress = { address: string; family?: number };
+type Resolve = (hostname: string) => Promise<ResolvedAddress[]>;
+type LookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | { address: string; family: number }[],
+  family?: number,
+) => void;
 
-// A public-looking name can still resolve to a private address, so check
-// every address the name resolves to before fetching it.
-export async function resolvesPublicly(hostname: string, resolve: Lookup = defaultLookup): Promise<boolean> {
-  try {
-    const addresses = await resolve(hostname);
-    return addresses.length > 0 && addresses.every(({ address }) => !isPrivateAddress(address));
-  } catch {
-    return false;
-  }
+const defaultResolve: Resolve = (hostname) => lookup(hostname, { all: true });
+
+export class BlockedAddressError extends Error {
+  code = "EBLOCKED";
+}
+
+// A DNS lookup for the HTTP client's sockets. It resolves the name, refuses
+// it if ANY address is private, and hands the checked addresses straight to
+// the connection. Because the check and the connect use the same answer,
+// DNS rebinding (a safe answer for the check, a private one for the
+// connect) has nothing to exploit.
+export function safeLookup(resolve: Resolve = defaultResolve) {
+  return (hostname: string, options: { all?: boolean } | number | undefined, callback: LookupCallback) => {
+    resolve(hostname).then(
+      (addresses) => {
+        const blocked = addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address));
+        if (blocked) {
+          callback(new BlockedAddressError(`${hostname} resolves to a private or unknown address`), "");
+          return;
+        }
+        const withFamily = addresses.map(({ address, family }) => ({ address, family: family ?? isIP(address) }));
+        if (typeof options === "object" && options?.all) callback(null, withFamily);
+        else callback(null, withFamily[0].address, withFamily[0].family);
+      },
+      (error) => callback(error, ""),
+    );
+  };
 }
