@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+:root {
+  --bg: #fbfbfd;
+  --fg: #12131a;
+  --muted: #5c6070;
+  --rule: #dcdde5;
+  --accent: #6d28d9;
+  --good: #15803d;
+  --bad: #b91c1c;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0d14;
+    --fg: #e6e8f0;
+    --muted: #8a90a6;
+    --rule: #262a3a;
+    --accent: #a78bfa;
+    --good: #4ade80;
+    --bad: #f87171;
+    color-scheme: dark;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+}
