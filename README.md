@@ -1,4 +1,6 @@
-# AI Project Reviewer
+# Project Reviewer
+
+**Live:** https://ai-project-reviewer-wine.vercel.app
 
 Paste a public GitHub repo and get an honest code review, grounded in what is actually in the repo rather than in what its description claims.
 
@@ -18,6 +20,7 @@ Live URL ───┘                         └─ live page title, meta, visi
 
 - **Grounded prompt.** The model sees the fetched content and is told to say so when content is missing, instead of inventing specifics. Fetched text is marked as data, not instructions.
 - **Untrusted output.** The model's JSON is validated: scores are clamped, malformed fields dropped, and a reply with no score is rejected and retried.
+- **Real progress.** `/api/review` streams newline-delimited JSON events (`repo`, `site`, `review` steps, then a result or error), so the checklist on the page ticks off when the server actually finishes each step.
 - **Fallback models.** The main model is tried twice, then lighter fallbacks that are rarely overloaded. If every attempt fails, the app says so rather than making up a score.
 
 ## Security
@@ -54,7 +57,7 @@ The rate limit is kept in memory, so on serverless hosts it slows abuse rather t
 ## Scripts
 
 ```bash
-npm test          # Vitest: URL safety, review parsing, rate limiting
+npm test          # Vitest: URL safety, review parsing, rate limiting, report export
 npm run typecheck
 npm run lint
 npm run build
@@ -63,6 +66,10 @@ npm run build
 ## Stack
 
 Next.js 16 (App Router, route handlers), React 19, TypeScript, Tailwind CSS 4, Google Gen AI SDK, Vitest.
+
+## Built with
+
+Built with [Codyza](https://codyza.com).
 
 ## License
 

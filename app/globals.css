@@ -1,35 +1,88 @@
 @import "tailwindcss";
 
-@theme {
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-}
-
+/* Paper, ink and one stamp-red accent. Green only marks a finished step. */
 :root {
-  --bg: #fbfbfd;
-  --fg: #12131a;
-  --muted: #5c6070;
-  --rule: #dcdde5;
-  --accent: #6d28d9;
-  --good: #15803d;
-  --bad: #b91c1c;
+  --paper: #f3efe6;
+  --card: #fbf8f1;
+  --ink: #1d1b17;
+  --ink-2: #5d574c;
+  --line: #ddd5c5;
+  --line-strong: #cfc5b1;
+  --stamp: #c4412a;
+  --pass: #2f6b3f;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0d14;
-    --fg: #e6e8f0;
-    --muted: #8a90a6;
-    --rule: #262a3a;
-    --accent: #a78bfa;
-    --good: #4ade80;
-    --bad: #f87171;
+    --paper: #171612;
+    --card: #201e19;
+    --ink: #ece6d8;
+    --ink-2: #a8a193;
+    --line: #35322b;
+    --line-strong: #4a463d;
+    --stamp: #e8664a;
+    --pass: #86bb92;
     color-scheme: dark;
   }
 }
 
 body {
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--font-mono);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+.font-display { font-family: var(--font-display), Georgia, serif; }
+.font-mono { font-family: var(--font-mono), ui-monospace, monospace; }
+
+/* Faint graph paper behind the hero. */
+.graph-paper {
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse at 70% 40%, black 30%, transparent 75%);
+}
+
+/* A ticket edge: a dashed tear line with notches cut into both sides. */
+.ticket { position: relative; }
+.ticket::before,
+.ticket::after {
+  content: "";
+  position: absolute;
+  top: 76px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+}
+.ticket::before { left: -12px; clip-path: inset(0 0 0 50%); }
+.ticket::after { right: -12px; clip-path: inset(0 50% 0 0); }
+
+@keyframes scan {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(-14px, 10px) rotate(-3deg); }
+  50% { transform: translate(-4px, 36px) rotate(2deg); }
+  75% { transform: translate(10px, 14px) rotate(-1deg); }
+}
+.art-scan { animation: scan 7s ease-in-out infinite; transform-origin: 236px 168px; }
+.art-scan.fast { animation-duration: 2.2s; }
+
+@keyframes stamp-in {
+  0% { transform: scale(1.8) rotate(-24deg); opacity: 0; }
+  60% { transform: scale(0.94) rotate(-9deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-10deg); opacity: 1; }
+}
+.stamp-in { animation: stamp-in 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+
+@keyframes grow { from { transform: scaleX(0); } }
+.grow { transform-origin: left; animation: grow 0.8s ease-out both; }
+
+@keyframes pulse-dot { 50% { opacity: 0.25; } }
+.pulse-dot { animation: pulse-dot 1s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .art-scan, .stamp-in, .grow, .pulse-dot { animation: none; }
 }

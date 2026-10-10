@@ -8,20 +8,9 @@ export type ReviewInput = {
   liveSiteContext: string | null;
 };
 
-export const CATEGORIES = ["code_quality", "originality", "completeness", "documentation"] as const;
-export type Category = (typeof CATEGORIES)[number];
-
-export type Review = {
-  score: number;
-  summary: string;
-  strengths: string[];
-  improvements: string[];
-  roadmap: string[];
-  breakdown: Record<Category, number>;
-  references: string[];
-  one_liner: string;
-  grounded: { repository: boolean; liveSite: boolean };
-};
+export { CATEGORIES } from "./review-types";
+export type { Category, Review } from "./review-types";
+import { CATEGORIES, type Category, type Review } from "./review-types";
 
 export function buildPrompt({ githubUrl, liveUrl, description, githubContext, liveSiteContext }: ReviewInput) {
   return `You are a senior software engineer reviewing a developer's project. Give an honest, specific, constructive review grounded in the ACTUAL repository and live site content below, not in the developer's own description. If that content is missing or thin, say so instead of inventing details you cannot verify.
