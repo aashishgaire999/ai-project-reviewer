@@ -15,12 +15,22 @@ const FILES = [
   { name: "package.json", depth: 0 },
 ];
 
+// Ring fill for the animation only. No score is shown: real scores live on the board.
 const BARS = [
   { label: "Code quality", value: 8 },
   { label: "Originality", value: 6 },
   { label: "Completeness", value: 7 },
   { label: "Docs", value: 9 },
 ];
+
+function Magnifier() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-8 w-8" aria-hidden>
+      <circle cx="10.5" cy="10.5" r="6" fill="none" stroke="var(--text)" strokeWidth="2.4" />
+      <line x1="15" y1="15" x2="20" y2="20" stroke="var(--text)" strokeWidth="2.8" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 // A product shot of the reviewer at work. It tilts toward the pointer.
 export function HeroWindow() {
@@ -47,7 +57,7 @@ export function HeroWindow() {
         style={{ rotateX, rotateY, transformStyle: "preserve-3d" }}
         className="card relative overflow-hidden !rounded-[22px]"
         role="img"
-        aria-label="The reviewer scanning a repository's files and filling four score rings"
+        aria-label="Illustration: the reviewer scanning a repository's files and filling four score rings"
       >
         <div className="flex items-center gap-2 border-b border-[var(--hairline)] px-4 py-3">
           {[0, 1, 2].map((i) => <span key={i} className="h-3 w-3 rounded-full bg-[var(--text-2)] opacity-30" />)}
@@ -77,7 +87,7 @@ export function HeroWindow() {
           </div>
           <div className="flex items-center gap-6 p-5">
             <Rings values={BARS.map((b) => b.value)} size={164} stroke={10} gap={3} delay={1} loop>
-              <span className="text-3xl font-semibold tracking-tight">8</span>
+              <Magnifier />
             </Rings>
             <ul className="min-w-0 flex-1 space-y-3 text-sm">
               {BARS.map((b, i) => (
@@ -87,7 +97,7 @@ export function HeroWindow() {
                       <span className="h-2 w-2 rounded-full" style={{ background: `var(--ring-${i + 1})` }} />
                       {b.label}
                     </span>
-                    <span className="text-[var(--text-2)]">{b.value}</span>
+                    <span className="h-1.5 w-8 animate-pulse rounded-full bg-[var(--text-2)] opacity-30" aria-hidden />
                   </div>
                 </li>
               ))}

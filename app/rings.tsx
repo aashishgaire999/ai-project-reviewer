@@ -38,7 +38,7 @@ export function Rings({
           return (
             <g key={i}>
               <circle cx={center} cy={center} r={r} fill="none" stroke={RING_COLORS[i % 4]} strokeOpacity={0.16} strokeWidth={stroke} />
-              <motion.circle
+              {progress > 0 && <motion.circle
                 cx={center}
                 cy={center}
                 r={r}
@@ -58,7 +58,7 @@ export function Rings({
                     ? { duration: 1.6, delay: delay + i * 0.15, ease: [0.22, 1, 0.36, 1], repeat: Infinity, repeatType: "reverse", repeatDelay: 1.8 }
                     : { duration: 1.4, delay: delay + i * 0.15, ease: [0.22, 1, 0.36, 1] }
                 }
-              />
+              />}
             </g>
           );
         })}

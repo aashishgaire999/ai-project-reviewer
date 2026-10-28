@@ -34,7 +34,9 @@ export function stripHtml(html: string, maxLength: number) {
     .slice(0, maxLength);
 }
 
-export async function fetchGithubContext(owner: string, repo: string, timeoutMs: number) {
+export type GithubContext = { text: string; pushedAt: string | null; fullName: string };
+
+export async function fetchGithubContext(owner: string, repo: string, timeoutMs: number): Promise<GithubContext | null> {
   const base = `https://api.github.com/repos/${owner}/${repo}`;
   const headers: Record<string, string> = {
     "User-Agent": "ai-project-reviewer",
@@ -52,11 +54,15 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   ]);
   const ok = (r: PromiseSettledResult<Response>) => (r.status === "fulfilled" && r.value.ok ? r.value : null);
 
+  const meta = ok(repoRes);
+  if (!meta) return null;
   const parts: string[] = [];
+  let pushedAt: string | null = null;
+  let fullName = `${owner}/${repo}`;
   try {
-    const meta = ok(repoRes);
-    if (!meta) return null;
     const data = await meta.json();
+    pushedAt = typeof data.pushed_at === "string" ? data.pushed_at : null;
+    if (typeof data.full_name === "string") fullName = data.full_name;
     parts.push(
       `Repository: ${data.full_name}`,
       `Description: ${data.description || "none given"}`,
@@ -88,7 +94,7 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   } catch {
     // Keep whatever was collected before the failure.
   }
-  return parts.join("\n") || null;
+  return parts.length ? { text: parts.join("\n"), pushedAt, fullName } : null;
 }
 
 // Follows redirects by hand so every hop's URL is re-checked; the pinned

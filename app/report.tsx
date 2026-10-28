@@ -2,7 +2,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { useState } from "react";
-import { CATEGORIES, type Category, type Review } from "@/lib/review-types";
+import { CATEGORIES, type Category, type Review, type Subject } from "@/lib/review-types";
 import { CountUp, Rings } from "./rings";
 
 const LABELS: Record<Category, string> = {
@@ -21,12 +21,14 @@ export function verdict(score: number) {
   return "Exceptional";
 }
 
+export const formatValue = (v: number | null) => (v === null ? "—" : `${v}/10`);
+
 export function toMarkdown(review: Review, repository: string) {
   const list = (items: string[]) => items.map((i) => `- ${i}`).join("\n");
   return [
     `## Review: ${repository} (${review.score}/10, ${verdict(review.score)})`,
     review.summary,
-    `| ${CATEGORIES.map((c) => LABELS[c]).join(" | ")} |\n|${CATEGORIES.map(() => "---").join("|")}|\n| ${CATEGORIES.map((c) => `${review.breakdown[c]}/10`).join(" | ")} |`,
+    `| ${CATEGORIES.map((c) => LABELS[c]).join(" | ")} |\n|${CATEGORIES.map(() => "---").join("|")}|\n| ${CATEGORIES.map((c) => formatValue(review.breakdown[c])).join(" | ")} |`,
     review.strengths.length && `### Strengths\n${list(review.strengths)}`,
     review.improvements.length && `### Fix next\n${list(review.improvements)}`,
     review.roadmap.length && `### Roadmap\n${review.roadmap.map((r, i) => `${i + 1}. ${r}`).join("\n")}`,
@@ -72,7 +74,8 @@ function Items({ items, icon }: { items: string[]; icon: "check" | "fix" | "arro
   );
 }
 
-export function Report({ review, repository, onReset }: { review: Review; repository: string; onReset: () => void }) {
+export function Report({ review, subject, reviewedAt, reused, onReset }: { review: Review; subject: Subject; reviewedAt: string; reused: boolean; onReset: () => void }) {
+  const repository = subject.label;
   const [copied, setCopied] = useState(false);
   const reduce = useReducedMotion();
 
@@ -114,16 +117,27 @@ export function Report({ review, repository, onReset }: { review: Review; reposi
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className="flex flex-col items-center gap-8 md:flex-row md:items-center md:gap-12">
-          <Rings values={CATEGORIES.map((c) => review.breakdown[c])} size={250} stroke={15} gap={4} delay={0.2}>
+          <Rings values={CATEGORIES.map((c) => review.breakdown[c] ?? 0)} size={250} stroke={15} gap={4} delay={0.2}>
             <div className="text-center" aria-label={`Score ${review.score} out of 10, ${verdict(review.score)}`}>
               <p className="text-5xl font-semibold leading-none tracking-tight"><CountUp to={review.score} delay={0.2} /></p>
               <p className="mt-1 text-xs font-medium text-[var(--text-2)]">{verdict(review.score)}</p>
             </div>
           </Rings>
           <div className="min-w-0 flex-1">
-            <a href={`https://github.com/${repository}`} className="font-mono text-sm text-[var(--accent)] hover:underline">
-              {repository}
-            </a>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <a href={subject.url} className="font-mono text-sm text-[var(--accent)] hover:underline">
+                {repository}
+              </a>
+              {subject.kind === "site" && <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-xs font-medium">Site only</span>}
+            </div>
+            {reused && (
+              <p className="mt-3 rounded-2xl bg-[var(--surface-2)] px-4 py-2.5 text-sm">
+                Already reviewed {new Date(reviewedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}.{" "}
+                <span className="text-[var(--text-2)]">
+                  {subject.kind === "repo" ? "Same code, same score. Push new code for a fresh review." : "Sites get a fresh review once a week."}
+                </span>
+              </p>
+            )}
             <p className="mt-3 text-2xl font-semibold leading-snug tracking-tight sm:text-[28px]">{review.summary}</p>
             {review.one_liner && <p className="mt-3 text-[var(--text-2)]">{review.one_liner}</p>}
             <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-3">
@@ -133,7 +147,7 @@ export function Report({ review, repository, onReset }: { review: Review; reposi
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: `var(--ring-${i + 1})` }} />
                     {LABELS[key]}
                   </dt>
-                  <dd className="text-sm font-semibold">{review.breakdown[key]}/10</dd>
+                  <dd className="text-sm font-semibold">{formatValue(review.breakdown[key])}</dd>
                 </div>
               ))}
             </dl>
@@ -155,7 +169,7 @@ export function Report({ review, repository, onReset }: { review: Review; reposi
           Review another repo
         </motion.button>
         <p className="w-full text-xs text-[var(--text-2)] sm:ml-auto sm:w-auto">
-          {review.grounded.liveSite ? "Repo + live site" : "Repo only"}
+          {review.grounded.repository && review.grounded.liveSite ? "Repo + live site" : review.grounded.repository ? "Repo only" : "Site only"}
         </p>
       </div>
     </article>
