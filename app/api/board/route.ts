@@ -1,8 +1,8 @@
-import { createPipeline, redisConfig } from "@/lib/redis";
+import { sharedPipeline } from "@/lib/redis";
 import { createStore } from "@/lib/store";
 
-const redis = redisConfig();
-const store = redis ? createStore(createPipeline(redis)) : null;
+const redis = sharedPipeline();
+const store = redis ? createStore(redis) : null;
 
 // The most recent reviews people chose to share, one per repo or site.
 export async function GET() {

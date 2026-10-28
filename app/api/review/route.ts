@@ -1,7 +1,7 @@
 import { fetchGithubContext, fetchLiveSiteContext } from "@/lib/context";
 import { encodeEvent, type ReviewEvent } from "@/lib/events";
 import { createLimiter } from "@/lib/rate-limit";
-import { createPipeline, redisConfig } from "@/lib/redis";
+import { sharedPipeline } from "@/lib/redis";
 import { generateReview, InvalidKeyError } from "@/lib/review";
 import type { SavedReview } from "@/lib/review-types";
 import { parseGithubRepo, parsePublicHttpsUrl } from "@/lib/safe-url";
@@ -11,9 +11,9 @@ export const maxDuration = 60;
 
 const FETCH_TIMEOUT_MS = 5_000;
 const REVIEW_BUDGET_MS = 50_000;
-const serverKeyLimit = createLimiter(Number(process.env.REVIEWS_PER_HOUR) || 5, 60 * 60 * 1000);
-const redis = redisConfig();
-const store = redis ? createStore(createPipeline(redis)) : null;
+const redis = sharedPipeline();
+const store = redis ? createStore(redis) : null;
+const serverKeyLimit = createLimiter(Number(process.env.REVIEWS_PER_HOUR) || 5, 60 * 60 * 1000, redis);
 
 const fail = (status: number, error: string) => Response.json({ error }, { status });
 
