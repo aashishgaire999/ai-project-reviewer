@@ -21,6 +21,9 @@ Live URL ───┘                         └─ live page title, meta, visi
 - **Grounded prompt.** The model sees the fetched content and is told to say so when content is missing, instead of inventing specifics. Fetched text is marked as data, not instructions.
 - **Untrusted output.** The model's JSON is validated: scores are clamped, malformed fields dropped, and a reply with no score is rejected and retried.
 - **Real progress.** `/api/review` streams newline-delimited JSON events (`repo`, `site`, `review` steps, then a result or error), so the checklist on the page ticks off when the server actually finishes each step.
+- **One score per version.** A finished review is saved. Reviewing the same repo again returns the saved review until new code is pushed (GitHub's `pushed_at` changes), so retrying can't fish for a better number. Sites have no version signal, so their review is reused for a week.
+- **Public board.** Reviews people choose to share appear on the home page, one entry per repo or site, newest first. Only the name, score and breakdown are shown there.
+- **Site-only reviews.** Leave GitHub empty to review just a live site. Code quality shows as "—" because there is no code to judge.
 - **Fallback models.** The main model is tried twice, then lighter fallbacks that are rarely overloaded. If every attempt fails, the app says so rather than making up a score.
 
 ## Security
@@ -49,11 +52,15 @@ Open http://localhost:3000.
 |---|---|
 | `GEMINI_API_KEY` | Optional. Lets visitors review without their own key. Without it, visitors paste their own key, used for that request only and never stored. |
 | `REVIEWS_PER_HOUR` | Reviews per IP per hour on the server's key. Default 5. |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Optional. Shares the rate limit across all serverless instances. Vercel's Upstash integration sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which also work. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Optional, but needed for saved reviews, the one-score-per-version rule and the public board. Also shares the rate limit across all serverless instances. Vercel's Upstash integration sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which also work. |
 | `GEMINI_MODEL`, `GEMINI_FALLBACK_MODELS` | Override the models. |
 | `GITHUB_TOKEN` | Optional. Raises the GitHub API limit from 60 to 5,000 requests an hour. |
 
 With Upstash configured, the rate limit is shared by every instance. Without it, each instance counts in its own memory, which slows abuse rather than capping it exactly. If Redis is down, the limiter falls back to memory rather than taking the site offline. It keys on `x-forwarded-for`, which is only reliable behind a proxy that sets it (Vercel does).
+
+## Private repositories
+
+Not supported, on purpose. GitHub only lets the owner, or an app the owner signs in to, read a private repo. A "Sign in with GitHub" flow that asks owners for read access would be the legitimate way to add it.
 
 ## Scripts
 

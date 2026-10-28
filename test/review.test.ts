@@ -54,6 +54,19 @@ describe("parseReview", () => {
   });
 });
 
+describe("site-only reviews", () => {
+  it("never reports a code quality score without the code", () => {
+    const review = parseReview('{"score": 7, "breakdown": {"code_quality": 9, "originality": 6}}', { repository: false, liveSite: true });
+    expect(review.breakdown.code_quality).toBeNull();
+    expect(review.breakdown.originality).toBe(6);
+  });
+  it("tells the model it only has the site", () => {
+    const prompt = buildPrompt({ githubUrl: null, liveUrl: "https://x.dev/", description: "", githubContext: null, liveSiteContext: "Page title: X" });
+    expect(prompt).toContain("set code_quality to null");
+    expect(prompt).not.toContain("REPOSITORY CONTENT");
+  });
+});
+
 describe("buildPrompt", () => {
   it("says when context could not be fetched", () => {
     const prompt = buildPrompt({ githubUrl: "https://github.com/a/b", liveUrl: null, description: "", githubContext: null, liveSiteContext: null });

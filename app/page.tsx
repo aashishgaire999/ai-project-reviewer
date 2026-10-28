@@ -1,12 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReviewEvent, StepId, StepStatus } from "@/lib/events";
-import type { Review } from "@/lib/review-types";
+import type { BoardEntry, Review, Subject } from "@/lib/review-types";
 import { HeroWindow } from "./hero";
 import { Report } from "./report";
-import { CardStack } from "./stack";
+import { Board } from "./stack";
 import { Reveal, Rings } from "./rings";
 
 const EXAMPLES = ["sindresorhus/is", "vercel/swr", "aashishgaire999/ai-project-reviewer"];
@@ -139,7 +139,9 @@ function RingsTile() {
   return (
     <div className="grid h-40 place-items-center rounded-2xl bg-[var(--surface-2)]">
       <Rings values={[8, 6, 7, 9]} size={136} stroke={9} gap={3} loop>
-        <span className="text-xl font-semibold">8</span>
+        <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden>
+          <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="var(--text)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </Rings>
     </div>
   );
@@ -154,14 +156,27 @@ export default function Home() {
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<Steps>(NO_STEPS);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<{ review: Review; repository: string } | null>(null);
+  const [result, setResult] = useState<{ review: Review; subject: Subject; reviewedAt: string; reused: boolean } | null>(null);
+  const [share, setShare] = useState(true);
+  const [board, setBoard] = useState<{ enabled: boolean; entries: BoardEntry[] }>({ enabled: false, entries: [] });
+
+  const loadBoard = useCallback(() => {
+    fetch("/api/board")
+      .then((res) => res.json())
+      .then((data) => setBoard({ enabled: Boolean(data?.enabled), entries: Array.isArray(data?.entries) ? data.entries : [] }))
+      .catch(() => {});
+  }, []);
+  useEffect(() => loadBoard(), [loadBoard]);
   const outputRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function handle(event: ReviewEvent) {
     if (event.type === "step") setSteps((s) => ({ ...s, [event.step]: event.status }));
-    else if (event.type === "result") setResult({ review: event.review, repository: event.repository });
+    else if (event.type === "result") {
+      setResult({ review: event.review, subject: event.subject, reviewedAt: event.reviewedAt, reused: event.reused });
+      loadBoard();
+    }
     else setError(event.error);
   }
 
@@ -176,7 +191,7 @@ export default function Home() {
       const res = await fetch("/api/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ githubUrl, liveUrl, description, apiKey }),
+        body: JSON.stringify({ githubUrl, liveUrl, description, apiKey, share }),
       });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => null);
@@ -242,7 +257,6 @@ export default function Home() {
                 ref={inputRef}
                 id="github"
                 type="url"
-                required
                 placeholder="https://github.com/owner/repo"
                 value={githubUrl}
                 onChange={(e) => setGithubUrl(e.target.value)}
@@ -250,7 +264,7 @@ export default function Home() {
               />
               <motion.button
                 type="submit"
-                disabled={running}
+                disabled={running || (!githubUrl.trim() && !liveUrl.trim())}
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.95 }}
                 className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-[var(--accent)] px-5 font-medium text-white disabled:opacity-60"
@@ -268,12 +282,19 @@ export default function Home() {
               <input
                 id="live"
                 type="url"
-                placeholder="Live site (optional)"
+                placeholder="Live site, or use this on its own"
                 value={liveUrl}
                 onChange={(e) => setLiveUrl(e.target.value)}
                 className="min-w-0 flex-1 bg-transparent py-3 text-[15px] outline-none placeholder:text-[var(--text-2)]"
               />
             </div>
+
+            {board.enabled && (
+              <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 text-sm text-[var(--text-2)]">
+                <input type="checkbox" checked={share} onChange={(e) => setShare(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+                Share the score on the public board
+              </label>
+            )}
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm">
               <span className="text-[var(--text-2)]">Try</span>
@@ -336,16 +357,22 @@ export default function Home() {
               </motion.div>
             )}
           </AnimatePresence>
-          {result && <div className="pt-12"><Report review={result.review} repository={result.repository} onReset={startOver} /></div>}
+          {result && (
+            <div className="pt-12">
+              <Report review={result.review} subject={result.subject} reviewedAt={result.reviewedAt} reused={result.reused} onReset={startOver} />
+            </div>
+          )}
         </section>
 
         <section className="px-4 pt-20 sm:px-6 sm:pt-28">
           <HeroWindow />
         </section>
 
-        <section className="overflow-x-clip px-4 pt-16 sm:px-6">
-          <CardStack />
-        </section>
+        {board.entries.length > 0 && (
+          <section className="overflow-x-clip px-4 pt-24 sm:px-6">
+            <Board entries={board.entries} />
+          </section>
+        )}
 
         <section id="how" className="mx-auto max-w-6xl scroll-mt-16 px-4 py-24 sm:px-6 sm:py-32">
           <Reveal>
