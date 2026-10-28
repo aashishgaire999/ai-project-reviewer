@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReviewEvent, StepId, StepStatus } from "@/lib/events";
 import type { BoardEntry, Review, Subject } from "@/lib/review-types";
@@ -168,6 +169,7 @@ export default function Home() {
   }, []);
   useEffect(() => loadBoard(), [loadBoard]);
   const outputRef = useRef<HTMLDivElement>(null);
+  const requestRef = useRef<AbortController | null>(null);
   const formRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -187,8 +189,11 @@ export default function Home() {
     setResult(null);
     setSteps(NO_STEPS);
     requestAnimationFrame(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    const request = new AbortController();
+    requestRef.current = request;
     try {
       const res = await fetch("/api/review", {
+        signal: request.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ githubUrl, liveUrl, description, apiKey, share }),
@@ -211,9 +216,30 @@ export default function Home() {
         if (buffer.trim()) handle(JSON.parse(buffer));
       }
     } catch {
-      setError("Couldn't reach the server. Check your connection and try again.");
+      // A review cancelled by going home is not an error.
+      if (!request.signal.aborted) setError("Couldn't reach the server. Check your connection and try again.");
     }
+    if (requestRef.current === request) {
+      requestRef.current = null;
+      setRunning(false);
+    }
+  }
+
+  // The logo works like a home button: cancel any running review, clear the
+  // page back to its first state and scroll to the top.
+  function goHome() {
+    requestRef.current?.abort();
+    requestRef.current = null;
     setRunning(false);
+    setGithubUrl("");
+    setLiveUrl("");
+    setDescription("");
+    setMore(false);
+    setResult(null);
+    setError("");
+    setSteps(NO_STEPS);
+    loadBoard();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function startOver() {
@@ -228,13 +254,24 @@ export default function Home() {
     <div className="min-h-screen overflow-x-clip">
       <main>
         <section className="mx-auto max-w-6xl px-4 pt-20 text-center sm:px-6 sm:pt-28">
-          <motion.p className="flex items-center justify-center gap-2 text-lg font-semibold text-[var(--accent)]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8 }}>
+          <motion.div className="flex justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8 }}>
+          <Link
+            href="/"
+            onClick={(e) => {
+              // Plain clicks reset in place; Cmd/Ctrl/middle-click still open a new tab.
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              goHome();
+            }}
+            className="flex items-center gap-2 rounded-full px-3 py-1 text-lg font-semibold text-[var(--accent)] transition-opacity hover:opacity-75"
+          >
             <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
               <circle cx="12" cy="12" r="9" fill="none" stroke="var(--ring-1)" strokeWidth="3" strokeDasharray="44 100" strokeLinecap="round" transform="rotate(-90 12 12)" />
               <circle cx="12" cy="12" r="4.5" fill="none" stroke="var(--ring-3)" strokeWidth="3" strokeDasharray="20 100" strokeLinecap="round" transform="rotate(-90 12 12)" />
             </svg>
             Project Reviewer
-          </motion.p>
+          </Link>
+          </motion.div>
           <div className="mt-3"><Headline /></div>
           <motion.p
             className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-[var(--text-2)] sm:text-xl"
