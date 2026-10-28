@@ -52,11 +52,12 @@ Open http://localhost:3000.
 |---|---|
 | `GEMINI_API_KEY` | Optional. Lets visitors review without their own key. Without it, visitors paste their own key, used for that request only and never stored. |
 | `REVIEWS_PER_HOUR` | Reviews per IP per hour on the server's key. Default 5. |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Optional, but needed for saved reviews, the one-score-per-version rule and the public board. Also shares the rate limit across all serverless instances. Vercel's Upstash integration sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which also work. |
+| `REDIS_URL` | Optional, but needed for saved reviews, the one-score-per-version rule and the public board. A direct Redis connection, e.g. Redis Cloud from Vercel's marketplace. Used first if set. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Alternative to `REDIS_URL`: Upstash over its REST API. Optional, but needed for saved reviews, the one-score-per-version rule and the public board. Also shares the rate limit across all serverless instances. Vercel's Upstash integration sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which also work. |
 | `GEMINI_MODEL`, `GEMINI_FALLBACK_MODELS` | Override the models. |
 | `GITHUB_TOKEN` | Optional. Raises the GitHub API limit from 60 to 5,000 requests an hour. |
 
-With Upstash configured, the rate limit is shared by every instance. Without it, each instance counts in its own memory, which slows abuse rather than capping it exactly. If Redis is down, the limiter falls back to memory rather than taking the site offline. It keys on `x-forwarded-for`, which is only reliable behind a proxy that sets it (Vercel does).
+With Redis configured, the rate limit is shared by every instance. Without it, each instance counts in its own memory, which slows abuse rather than capping it exactly. If Redis is down, the limiter falls back to memory rather than taking the site offline. It keys on `x-forwarded-for`, which is only reliable behind a proxy that sets it (Vercel does).
 
 ## Private repositories
 

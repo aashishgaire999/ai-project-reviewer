@@ -1,6 +1,8 @@
+import type { Pipeline } from "./redis";
+
 // Per-IP limits on the server's Gemini key.
 //
-// With Upstash Redis configured, every serverless instance shares one count.
+// With Redis configured, every serverless instance shares one count.
 // Without it, each instance counts on its own in memory: warm instances keep
 // their count, but separate instances don't share it, so this slows abuse
 // rather than capping it exactly.
@@ -28,47 +30,32 @@ export function createRateLimiter(limit: number, windowMs: number, now: () => nu
   };
 }
 
-// Fixed window in Redis via Upstash's REST pipeline: create the counter with
-// an expiry if it doesn't exist, increment it, and read how long is left.
-export function createUpstashLimiter(
-  { url, token, limit, windowMs }: { url: string; token: string; limit: number; windowMs: number },
-  fetchImpl: typeof fetch = fetch,
-): Limiter {
+// Fixed window in Redis: create the counter with an expiry if it doesn't
+// exist, increment it, and read how long is left.
+export function createRedisLimiter(redis: Pipeline, limit: number, windowMs: number): Limiter {
   const windowSeconds = Math.ceil(windowMs / 1000);
   return async (key) => {
     const redisKey = `ratelimit:review:${key}`;
-    const res = await fetchImpl(`${url.replace(/\/$/, "")}/pipeline`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify([
-        ["SET", redisKey, "0", "EX", String(windowSeconds), "NX"],
-        ["INCR", redisKey],
-        ["PTTL", redisKey],
-      ]),
-      signal: AbortSignal.timeout(2_000),
-    });
-    if (!res.ok) throw new Error(`Upstash ${res.status}`);
-    const [, incr, pttl] = (await res.json()) as { result?: number; error?: string }[];
-    if (typeof incr?.result !== "number") throw new Error(`Upstash: ${incr?.error ?? "bad response"}`);
-    const msLeft = typeof pttl?.result === "number" && pttl.result > 0 ? pttl.result : windowMs;
-    return incr.result > limit
-      ? { allowed: false, retryAfterSeconds: Math.ceil(msLeft / 1000) }
-      : { allowed: true, retryAfterSeconds: 0 };
+    const [, count, pttl] = await redis([
+      ["SET", redisKey, "0", "EX", windowSeconds, "NX"],
+      ["INCR", redisKey],
+      ["PTTL", redisKey],
+    ]);
+    if (typeof count !== "number") throw new Error("Rate limit store returned no count");
+    const msLeft = typeof pttl === "number" && pttl > 0 ? pttl : windowMs;
+    return count > limit ? { allowed: false, retryAfterSeconds: Math.ceil(msLeft / 1000) } : { allowed: true, retryAfterSeconds: 0 };
   };
 }
 
-// Uses Redis when its env vars are set (names from Upstash or Vercel's
-// Upstash integration), and falls back to memory if Redis is unset or down,
-// so an outage there never takes the reviewer offline.
-export function createLimiter(limit: number, windowMs: number, env: Record<string, string | undefined> = process.env): Limiter {
+// Uses Redis when one is configured, and falls back to memory if it is
+// unset or down, so an outage there never takes the reviewer offline.
+export function createLimiter(limit: number, windowMs: number, redis: Pipeline | null): Limiter {
   const memory = createRateLimiter(limit, windowMs);
-  const url = env.UPSTASH_REDIS_REST_URL || env.KV_REST_API_URL;
-  const token = env.UPSTASH_REDIS_REST_TOKEN || env.KV_REST_API_TOKEN;
-  if (!url || !token) return async (key) => memory(key);
-  const redis = createUpstashLimiter({ url, token, limit, windowMs });
+  if (!redis) return async (key) => memory(key);
+  const shared = createRedisLimiter(redis, limit, windowMs);
   return async (key) => {
     try {
-      return await redis(key);
+      return await shared(key);
     } catch (error) {
       console.error("Rate limit store unavailable, using in-memory limit", String(error).slice(0, 200));
       return memory(key);
