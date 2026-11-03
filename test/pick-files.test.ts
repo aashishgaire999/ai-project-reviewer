@@ -40,21 +40,43 @@ describe("pickFiles", () => {
     expect(picked.map((p) => p.path)).toContain("index.html");
   });
 
-  it("caps how many source files are read", () => {
+  it("reads every source file when the repo fits the budget", () => {
     const tree = Array.from({ length: 30 }, (_, i) => blob(`src/file${i}.ts`));
-    expect(pickFiles(tree).filter((p) => p.role === "source")).toHaveLength(5);
+    expect(pickFiles(tree).filter((p) => p.role === "source")).toHaveLength(30);
+  });
+
+  it("stops at the byte budget on big repos, most central files first", () => {
+    const tree = [blob("src/index.ts", 5_000), ...Array.from({ length: 120 }, (_, i) => blob(`misc/deep/file${i}.ts`, 3_000))];
+    const sources = pickFiles(tree).filter((p) => p.role === "source");
+    expect(sources[0].path).toBe("src/index.ts");
+    expect(sources).toHaveLength(1 + Math.floor((200_000 - 5_000) / 3_000));
+  });
+
+  it("counts a large file only up to the part that is read, and caps the file count", () => {
+    const big = Array.from({ length: 20 }, (_, i) => blob(`src/big${i}.ts`, 90_000));
+    expect(pickFiles(big).filter((p) => p.role === "source")).toHaveLength(10); // 10 x 20 KB read
+    const many = Array.from({ length: 200 }, (_, i) => blob(`src/f${i}.ts`, 500));
+    expect(pickFiles(many).filter((p) => p.role === "source")).toHaveLength(80);
+  });
+
+  it("reads up to three tests", () => {
+    const tree = Array.from({ length: 6 }, (_, i) => blob(`test/t${i}.test.ts`));
+    expect(pickFiles(tree).filter((p) => p.role === "test")).toHaveLength(3);
   });
 });
 
 describe("readDepth and treeStats", () => {
-  it("calls a review deep only when real source files were read", () => {
-    expect(readDepth([{ path: "a.ts", role: "source" }, { path: "b.ts", role: "source" }, { path: "c.ts", role: "source" }])).toBe("deep");
-    expect(readDepth([{ path: "package.json", role: "manifest" }])).toBe("partial");
-    expect(readDepth([])).toBe("surface");
+  it("labels depth from coverage", () => {
+    expect(readDepth(12, 12)).toBe("full");
+    expect(readDepth(8, 12)).toBe("deep");
+    expect(readDepth(40, 212)).toBe("deep");
+    expect(readDepth(3, 40)).toBe("partial");
+    expect(readDepth(0, 10, true)).toBe("partial");
+    expect(readDepth(0, 0)).toBe("surface");
   });
   it("counts source, test and CI files, ignoring dependencies", () => {
-    expect(treeStats([blob("src/a.ts"), blob("src/a.test.ts"), blob(".github/workflows/ci.yml"), blob("node_modules/x.js")])).toEqual({
-      files: 3, sourceFiles: 1, testFiles: 1, ciWorkflows: 1,
+    expect(treeStats([blob("src/a.ts"), blob("src/a.test.ts"), blob(".github/workflows/ci.yml"), blob("node_modules/x.js"), blob("eslint.config.mjs")])).toEqual({
+      files: 4, sourceFiles: 1, testFiles: 1, ciWorkflows: 1, // the config file exists but is not source
     });
   });
 });

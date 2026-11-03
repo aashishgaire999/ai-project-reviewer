@@ -9,12 +9,13 @@ export type ReviewInput = {
   // Files the GitHub fetch actually read, and how deep that went.
   read?: string[];
   depth?: Depth;
+  coverage?: Coverage | null;
   facts?: Facts;
 };
 
 export { CATEGORIES } from "./review-types";
 export type { Category, Review } from "./review-types";
-import { CATEGORIES, toItems, type Category, type Depth, type Review } from "./review-types";
+import { CATEGORIES, toItems, type Category, type Coverage, type Depth, type Review } from "./review-types";
 import { applyCaps, overallScore, SCORING_VERSION, UNKNOWN_FACTS, type Facts } from "./scoring";
 
 export function buildPrompt({ githubUrl, liveUrl, description, githubContext, liveSiteContext }: ReviewInput) {
@@ -127,6 +128,7 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
     liveSite: Boolean(input.liveSiteContext),
     read: input.read ?? [],
     depth: input.depth ?? ("surface" as Depth),
+    ...(input.coverage ? { coverage: input.coverage } : {}),
   };
   const attempts = [PRIMARY_MODEL, PRIMARY_MODEL, ...FALLBACK_MODELS];
 

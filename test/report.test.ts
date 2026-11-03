@@ -47,7 +47,11 @@ describe("older saved reviews", () => {
 describe("groundingNote", () => {
   it("states how much was read, from the server's facts", () => {
     const deep = { ...review, grounded: { repository: true, liveSite: false, read: ["README", "package.json", "src/a.ts", "src/b.ts"], depth: "deep" as const } };
-    expect(groundingNote(deep, "repo")).toEqual({ label: "Deep read", note: expect.stringContaining("3 project files") });
+    expect(groundingNote(deep, "repo").label).toBe("Deep read");
+    const full = { ...review, grounded: { repository: true, liveSite: false, read: ["README"], depth: "full" as const, coverage: { read: 34, total: 34 } } };
+    expect(groundingNote(full, "repo")).toEqual({ label: "Full read", note: expect.stringContaining("34 of 34 source files (100%)") });
+    const partial = { ...review, grounded: { repository: true, liveSite: false, read: ["README"], depth: "deep" as const, coverage: { read: 40, total: 212 } } };
+    expect(groundingNote(partial, "repo").note).toContain("40 of 212 source files (19%)");
     expect(groundingNote(review, "repo").label).toBe("Surface read");
     expect(groundingNote(review, "site").label).toBe("Site only");
   });

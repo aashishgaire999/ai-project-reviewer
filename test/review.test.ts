@@ -17,7 +17,7 @@ describe("parseReview", () => {
     expect(review.score).toBe(4);
     expect(review.strengths).toEqual([{ title: "Tests", detail: "", evidence: "" }]);
     expect(review.improvements).toEqual([]);
-    expect(review.grounded).toMatchObject({ ...grounded, scoring: 2, adjustments: [] });
+    expect(review.grounded).toMatchObject({ ...grounded, scoring: 3, adjustments: [] });
   });
   it("accepts numeric strings and treats missing categories as not assessed", () => {
     const review = parseReview(JSON.stringify({ breakdown: bd("9", 99, null, "lots") }), grounded);
