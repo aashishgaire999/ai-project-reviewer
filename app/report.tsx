@@ -53,40 +53,31 @@ export function groundingNote(review: Review, kind: Subject["kind"]) {
 }
 
 function ReadLine({ read }: { read: string[] }) {
-  const [all, setAll] = useState(false);
   if (!read.length) return null;
-  const shown = all ? read : read.slice(0, 4);
+  const shown = read.slice(0, 3);
   return (
-    <p className="mt-2 text-sm text-[var(--text-2)]">
-      Read:{" "}
-      {shown.map((f, i) => (
-        <span key={f}>
-          <span className="font-mono text-[13px] text-[var(--text)]">{f}</span>
-          {i < shown.length - 1 ? ", " : ""}
-        </span>
-      ))}
-      {read.length > 4 && (
-        <button onClick={() => setAll((a) => !a)} className="ml-1.5 text-[var(--accent)] hover:underline">
-          {all ? "less" : `+${read.length - 4} more`}
-        </button>
-      )}
+    <p className="mt-1 truncate text-xs text-[var(--text-2)]" title={`Read: ${read.join(", ")}`}>
+      Read: <span className="font-mono text-[var(--text)]">{shown.join(", ")}</span>
+      {read.length > 3 && <span> +{read.length - 3} more</span>}
     </p>
   );
 }
 
-function Actions({ onCopy, copied, onReset, className = "" }: { onCopy: () => void; copied: boolean; onReset: () => void; className?: string }) {
+function Actions({ onCopy, copied, onReset }: { onCopy: () => void; copied: boolean; onReset: () => void }) {
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <motion.button whileTap={{ scale: 0.96 }} onClick={onCopy} className="rounded-full bg-[var(--text)] px-4 py-2 text-sm font-medium text-[var(--bg)]">
+    <div className="flex items-center gap-2">
+      <motion.button whileTap={{ scale: 0.96 }} onClick={onCopy} className="rounded-full bg-[var(--text)] px-3.5 py-1.5 text-xs font-medium text-[var(--bg)]">
         {copied ? "Copied" : "Copy as Markdown"}
       </motion.button>
-      <motion.button whileTap={{ scale: 0.96 }} onClick={onReset} className="rounded-full bg-[var(--surface-2)] px-4 py-2 text-sm font-medium">
+      <motion.button whileTap={{ scale: 0.96 }} onClick={onReset} className="rounded-full bg-[var(--surface-2)] px-3.5 py-1.5 text-xs font-medium">
         Review another
       </motion.button>
     </div>
   );
 }
 
+// Collapsed: title plus one line of detail. Open: the full detail and the
+// file it was seen in.
 function Row({ item, marker, warn, tag }: { item: Item; marker?: React.ReactNode; warn?: boolean; tag?: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -94,29 +85,23 @@ function Row({ item, marker, warn, tag }: { item: Item; marker?: React.ReactNode
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className={`my-2 flex w-full items-start gap-3 py-1.5 text-left ${warn ? "border-l-[3px] border-[var(--warn)] pl-3" : ""}`}
+        className={`my-1 flex w-full items-start gap-2.5 py-1.5 text-left ${warn ? "border-l-[3px] border-[var(--warn)] pl-2.5" : ""}`}
       >
         {marker}
         <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold leading-snug">{item.title}</span>
+          <span className="flex items-center gap-2">
+            <span className="truncate text-sm font-semibold">{item.title}</span>
             {tag && (
-              <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: "color-mix(in srgb, var(--warn) 14%, transparent)", color: "var(--warn)" }}>
+              <span className="shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold" style={{ background: "color-mix(in srgb, var(--warn) 14%, transparent)", color: "var(--warn)" }}>
                 {tag}
               </span>
             )}
           </span>
-          {item.detail && <span className="mt-0.5 block text-sm leading-relaxed text-[var(--text-2)]">{item.detail}</span>}
+          {item.detail && <span className={`block text-[13px] leading-snug text-[var(--text-2)] ${open ? "" : "truncate"}`}>{item.detail}</span>}
           <AnimatePresence initial={false}>
             {open && (
-              <motion.span
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25 }}
-                className="block overflow-hidden"
-              >
-                <span className="mt-1.5 block text-xs text-[var(--text-2)]">
+              <motion.span initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="block overflow-hidden">
+                <span className="mt-1 block text-xs text-[var(--text-2)]">
                   {item.evidence ? (
                     <>
                       Seen in <span className="font-mono text-[var(--text)]">{item.evidence}</span>
@@ -129,7 +114,7 @@ function Row({ item, marker, warn, tag }: { item: Item; marker?: React.ReactNode
             )}
           </AnimatePresence>
         </span>
-        <svg viewBox="0 0 20 20" className={`mt-1 h-4 w-4 shrink-0 text-[var(--text-2)] transition-transform ${open ? "rotate-90" : ""}`} aria-hidden>
+        <svg viewBox="0 0 20 20" className={`mt-0.5 h-4 w-4 shrink-0 text-[var(--text-2)] transition-transform ${open ? "rotate-90" : ""}`} aria-hidden>
           <path d="M7 5l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
@@ -137,24 +122,54 @@ function Row({ item, marker, warn, tag }: { item: Item; marker?: React.ReactNode
   );
 }
 
-function Panel({ title, index, tone = "normal", children }: { title: string; index: number; tone?: "strong" | "normal" | "quiet"; children: React.ReactNode }) {
+type Tone = "strong" | "normal" | "quiet";
+type PanelSpec = { key: string; title: string; short: string; tone: Tone; body: React.ReactNode };
+
+function panelClass(tone: Tone) {
+  if (tone === "strong") return "card !rounded-2xl p-4 !border-[color-mix(in_srgb,var(--warn)_40%,transparent)]";
+  if (tone === "quiet") return "rounded-2xl border border-dashed border-[var(--hairline)] p-4";
+  return "card !rounded-2xl p-4";
+}
+
+function Panel({ spec, index }: { spec: PanelSpec; index: number }) {
   const reduce = useReducedMotion();
-  const style =
-    tone === "strong"
-      ? "card p-6 sm:p-7 !border-[color-mix(in_srgb,var(--warn)_40%,transparent)]"
-      : tone === "quiet"
-        ? "rounded-[28px] border border-dashed border-[var(--hairline)] p-6 sm:p-7"
-        : "card p-6 sm:p-7";
   return (
     <motion.section
-      className={style}
-      initial={reduce ? false : { opacity: 0, y: 18 }}
+      className={panelClass(spec.tone)}
+      initial={reduce ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6, delay: 0.15 + index * 0.08, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.5, delay: 0.1 + index * 0.06, ease: [0.22, 1, 0.36, 1] }}
     >
-      <h3 className={`text-base font-semibold ${tone === "quiet" ? "text-[var(--text-2)]" : ""}`}>{title}</h3>
-      <ul className={`mt-2 ${tone === "quiet" ? "opacity-80" : ""}`}>{children}</ul>
+      <h3 className={`text-sm font-semibold ${spec.tone === "quiet" ? "text-[var(--text-2)]" : ""}`}>{spec.title}</h3>
+      <ul className={`mt-1 ${spec.tone === "quiet" ? "opacity-80" : ""}`}>{spec.body}</ul>
     </motion.section>
+  );
+}
+
+// On phones the four panels become tabs, so the report still fits one screen.
+function PanelTabs({ panels }: { panels: PanelSpec[] }) {
+  const [active, setActive] = useState(panels[0]?.key);
+  const current = panels.find((p) => p.key === active) ?? panels[0];
+  if (!current) return null;
+  return (
+    <div className="md:hidden">
+      <div role="tablist" className="flex gap-1 rounded-full bg-[var(--surface-2)] p-1">
+        {panels.map((p) => (
+          <button
+            key={p.key}
+            role="tab"
+            aria-selected={p.key === current.key}
+            onClick={() => setActive(p.key)}
+            className={`flex-1 rounded-full px-2 py-1.5 text-xs font-medium transition-colors ${p.key === current.key ? "bg-[var(--surface)] shadow-sm" : "text-[var(--text-2)]"}`}
+          >
+            {p.short}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3" role="tabpanel">
+        <Panel spec={current} index={0} />
+      </div>
+    </div>
   );
 }
 
@@ -173,104 +188,106 @@ export function Report({ review, subject, reviewedAt, reused, onReset }: { revie
     }
   }
 
+  const panels: PanelSpec[] = [
+    review.improvements.length > 0 && {
+      key: "fix",
+      title: "Fix next",
+      short: "Fix next",
+      tone: "strong" as Tone,
+      body: review.improvements.map((item, i) => <Row key={item.title} item={item} warn tag={i === 0 ? "Highest impact" : undefined} />),
+    },
+    review.roadmap.length > 0 && {
+      key: "roadmap",
+      title: "Roadmap",
+      short: "Roadmap",
+      tone: "normal" as Tone,
+      body: review.roadmap.map((item, i) => (
+        <Row
+          key={item.title}
+          item={item}
+          marker={<span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[var(--surface-2)] text-[10px] font-semibold">{i + 1}</span>}
+        />
+      )),
+    },
+    review.strengths.length > 0 && {
+      key: "working",
+      title: "What's working",
+      short: "Working",
+      tone: "normal" as Tone,
+      body: review.strengths.map((item) => <Row key={item.title} item={item} />),
+    },
+    review.references.length > 0 && {
+      key: "study",
+      title: "Worth studying",
+      short: "Study",
+      tone: "quiet" as Tone,
+      body: review.references.map((item) => <Row key={item.title} item={item} />),
+    },
+  ].filter(Boolean) as PanelSpec[];
+
   return (
-    <article aria-live="polite" className="space-y-4">
+    <article aria-live="polite" className="space-y-3">
       <motion.div
-        className="card p-6 sm:p-8"
-        initial={reduce ? false : { opacity: 0, y: 16 }}
+        className="card !rounded-2xl p-4 sm:p-5"
+        initial={reduce ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <a href={subject.url} className="font-mono text-sm text-[var(--accent)] hover:underline">
-                {subject.label}
-              </a>
-              <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-xs font-medium">{grounding.label}</span>
+        <div className="flex items-start gap-4">
+          <Rings values={CATEGORIES.map((c) => review.breakdown[c] ?? 0)} size={84} stroke={6} gap={2} delay={0.15}>
+            <span className="text-xl font-semibold tracking-tight" aria-label={`Score ${review.score} out of 10`}>
+              {review.score}
+            </span>
+          </Rings>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <a href={subject.url} className="truncate font-mono text-sm text-[var(--accent)] hover:underline">
+                  {subject.label}
+                </a>
+                <span className="shrink-0 rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-medium" title={grounding.note}>
+                  {grounding.label}
+                </span>
+              </div>
+              <div className="hidden sm:block">
+                <Actions onCopy={copy} copied={copied} onReset={onReset} />
+              </div>
             </div>
             <ReadLine read={review.grounded.read ?? []} />
-            <p className="mt-1 text-xs text-[var(--text-2)]">{grounding.note}</p>
+            <p className="mt-1.5 line-clamp-3 text-[15px] font-medium leading-snug sm:line-clamp-2" title={review.summary}>
+              {review.summary}
+            </p>
           </div>
-          <Actions onCopy={copy} copied={copied} onReset={onReset} className="hidden sm:flex" />
         </div>
 
-        {reused && (
-          <p className="mt-4 rounded-2xl bg-[var(--surface-2)] px-4 py-2.5 text-sm">
-            Already reviewed {new Date(reviewedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}.{" "}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t border-[var(--hairline)] pt-3 text-xs">
+          <dl className="flex flex-wrap gap-x-4 gap-y-1">
+            {CATEGORIES.map((key, i) => (
+              <div key={key} className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: `var(--ring-${i + 1})` }} />
+                <dt className="text-[var(--text-2)]">{LABELS[key]}</dt>
+                <dd className="font-semibold">{formatValue(review.breakdown[key])}</dd>
+              </div>
+            ))}
+          </dl>
+          {reused && (
             <span className="text-[var(--text-2)]">
-              {subject.kind === "repo" ? "Same code, same score. Push new code for a fresh review." : "Sites get a fresh review once a week."}
+              Saved review from {new Date(reviewedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })} ·{" "}
+              {subject.kind === "repo" ? "same code, same score" : "refreshes weekly"}
             </span>
-          </p>
-        )}
-
-        <div className="mt-6 grid gap-6 md:grid-cols-[1fr_auto] md:items-center">
-          <div>
-            <p className="text-xl font-semibold leading-snug tracking-tight sm:text-2xl">{review.summary}</p>
-            {review.one_liner && <p className="mt-2 text-[var(--text-2)]">{review.one_liner}</p>}
-          </div>
-          <div className="flex items-center gap-5 md:border-l md:border-[var(--hairline)] md:pl-6">
-            <Rings values={CATEGORIES.map((c) => review.breakdown[c] ?? 0)} size={116} stroke={7} gap={2} delay={0.2}>
-              <span className="text-2xl font-semibold tracking-tight" aria-label={`Score ${review.score} out of 10`}>
-                {review.score}
-              </span>
-            </Rings>
-            <dl className="space-y-1.5 text-sm">
-              {CATEGORIES.map((key, i) => (
-                <div key={key} className="flex items-center justify-between gap-4">
-                  <dt className="flex items-center gap-2 text-[var(--text-2)]">
-                    <span className="h-2 w-2 rounded-full" style={{ background: `var(--ring-${i + 1})` }} />
-                    {LABELS[key]}
-                  </dt>
-                  <dd className="font-semibold">{formatValue(review.breakdown[key])}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          )}
+        </div>
+        <div className="mt-3 sm:hidden">
+          <Actions onCopy={copy} copied={copied} onReset={onReset} />
         </div>
       </motion.div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {review.improvements.length > 0 && (
-          <Panel title="Fix next" index={0} tone="strong">
-            {review.improvements.map((item, i) => (
-              <Row key={item.title} item={item} warn tag={i === 0 ? "Highest impact" : undefined} />
-            ))}
-          </Panel>
-        )}
-        {review.roadmap.length > 0 && (
-          <Panel title="Roadmap" index={1}>
-            {review.roadmap.map((item, i) => (
-              <Row
-                key={item.title}
-                item={item}
-                marker={<span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[var(--surface-2)] text-[11px] font-semibold">{i + 1}</span>}
-              />
-            ))}
-          </Panel>
-        )}
-        {review.strengths.length > 0 && (
-          <Panel title="What's working" index={2}>
-            {review.strengths.map((item) => (
-              <Row key={item.title} item={item} />
-            ))}
-          </Panel>
-        )}
-        {review.references.length > 0 && (
-          <Panel title="Worth studying" index={3} tone="quiet">
-            {review.references.map((item) => (
-              <Row key={item.title} item={item} />
-            ))}
-          </Panel>
-        )}
+      <div className="hidden gap-3 md:grid md:grid-cols-2">
+        {panels.map((spec, i) => (
+          <Panel key={spec.key} spec={spec} index={i} />
+        ))}
       </div>
-
-      {/* Stays in reach at the bottom of the screen while the report is in view. */}
-      <div className="sticky bottom-4 z-10 flex justify-center pt-2">
-        <div className="glass rounded-full border border-[var(--hairline)] p-1.5 shadow-lg">
-          <Actions onCopy={copy} copied={copied} onReset={onReset} />
-        </div>
-      </div>
+      <PanelTabs panels={panels} />
     </article>
   );
 }
