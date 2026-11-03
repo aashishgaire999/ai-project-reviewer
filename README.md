@@ -53,6 +53,7 @@ Open http://localhost:3000.
 |---|---|
 | `GEMINI_API_KEY` | Optional. Lets visitors review without their own key. Without it, visitors paste their own key, used for that request only and never stored. |
 | `REVIEWS_PER_HOUR` | Reviews per IP per hour on the server's key. Default 5. |
+| `DAILY_REVIEW_LIMIT` | AI reviews per day across all visitors on the server's key, resetting at midnight UTC. Default 50. Saved repeat reviews and visitors' own keys don't count. Shared across instances when Redis is configured. |
 | `REDIS_URL` | Optional, but needed for saved reviews, the one-score-per-version rule and the public board. A direct Redis connection, e.g. Redis Cloud from Vercel's marketplace. Used first if set. |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Alternative to `REDIS_URL`: Upstash over its REST API. Optional, but needed for saved reviews, the one-score-per-version rule and the public board. Also shares the rate limit across all serverless instances. Vercel's Upstash integration sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which also work. |
 | `GEMINI_MODEL`, `GEMINI_FALLBACK_MODELS` | Override the models. |
