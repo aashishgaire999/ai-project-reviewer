@@ -1,4 +1,4 @@
-import { fetchGithubContext, fetchLiveSiteContext } from "@/lib/context";
+import { fetchGithubContext, fetchLiveSiteContext, GithubFetchError, githubFailureMessage, type GithubContext } from "@/lib/context";
 import { encodeEvent, type ReviewEvent } from "@/lib/events";
 import { createLimiter } from "@/lib/rate-limit";
 import { sharedPipeline } from "@/lib/redis";
@@ -56,12 +56,18 @@ export async function POST(request: Request) {
       try {
         send({ type: "step", step: "repo", status: repo ? "running" : "skipped" });
         send({ type: "step", step: "site", status: liveUrl ? "running" : "skipped" });
-        const [github, liveSiteContext] = await Promise.all([
+        const [githubResult, liveSiteContext] = await Promise.all([
           repo
-            ? fetchGithubContext(repo.owner, repo.repo, FETCH_TIMEOUT_MS).then((context) => {
-                send({ type: "step", step: "repo", status: context ? "done" : "failed" });
-                return context;
-              })
+            ? fetchGithubContext(repo.owner, repo.repo, FETCH_TIMEOUT_MS).then(
+                (context) => {
+                  send({ type: "step", step: "repo", status: context ? "done" : "failed" });
+                  return context;
+                },
+                (e: unknown) => {
+                  send({ type: "step", step: "repo", status: "failed" });
+                  return e instanceof GithubFetchError ? e : new GithubFetchError({ reason: "unavailable" });
+                },
+              )
             : Promise.resolve(null),
           liveUrl
             ? fetchLiveSiteContext(liveUrl, FETCH_TIMEOUT_MS).then((context) => {
@@ -70,6 +76,8 @@ export async function POST(request: Request) {
               })
             : Promise.resolve(null),
         ]);
+        if (githubResult instanceof GithubFetchError) return error(githubFailureMessage(githubResult.failure));
+        const github: GithubContext | null = githubResult;
         if (repo && !github) return error("Couldn't read that repository. Check it exists and is public.");
         if (!repo && !liveSiteContext) return error("Couldn't load that site. Check the address opens in a browser.");
 
