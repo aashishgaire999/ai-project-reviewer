@@ -25,6 +25,10 @@ export type Review = {
     // What the review actually read. Missing on reviews saved before this existed.
     read?: string[];
     depth?: Depth;
+    // Caps the server applied from facts it checked, e.g. "Completeness capped at 6: no test files found".
+    adjustments?: string[];
+    // Which scoring rules produced this review. Older reviews have none.
+    scoring?: number;
   };
 };
 

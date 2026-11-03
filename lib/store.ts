@@ -1,4 +1,5 @@
 import { normalizeReview, type BoardEntry, type SavedReview, type Subject } from "./review-types";
+import { SCORING_VERSION } from "./scoring";
 import type { Pipeline } from "./redis";
 
 // Saved reviews, one per subject, plus the public board: a sorted set of
@@ -23,8 +24,9 @@ export function subjectForSite(url: URL): Subject {
 // A repo keeps its score until new code is pushed. A site has no version
 // signal, so its review is reused for a week.
 export function canReuse(saved: SavedReview, version: string | null, now = Date.now()) {
-  // Reviews from before the reviewer read source files have no depth recorded;
-  // let those repos get one fresh, deeper review instead of keeping the old one.
+  // Reviews made under older rules (before source files were read, or with
+  // the earlier, more lenient scoring) get one fresh review instead.
+  if (saved.review.grounded.scoring !== SCORING_VERSION) return false;
   if (saved.subject.kind === "repo") return saved.version !== null && saved.version === version && Boolean(saved.review.grounded.depth);
   return now - Date.parse(saved.reviewedAt) < SITE_REUSE_MS;
 }
