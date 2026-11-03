@@ -113,6 +113,10 @@ export class InvalidKeyError extends Error {}
 // Every attempt was refused because the key's quota is used up.
 export class QuotaError extends Error {}
 export const isQuota = (error: unknown) => /RESOURCE_EXHAUSTED|quota/i.test(String((error as Error)?.message || error));
+// The model name is unknown or retired. Model names change over time, so this
+// skips to the next model instead of giving up on the review.
+export const isMissingModel = (error: unknown) =>
+  /\bNOT_FOUND\b|"code":\s*404|models\/[^ ]+ is not found|is not supported for generateContent/i.test(String((error as Error)?.message || error));
 const isInvalidKey = (error: unknown) => /API_KEY_INVALID|API key not valid/i.test(String((error as Error)?.message || error));
 
 export const isTransient = (error: unknown) =>
@@ -124,7 +128,7 @@ export const isTransient = (error: unknown) =>
 // overloaded. Returns null rather than inventing a review if all attempts
 // fail, throws InvalidKeyError when the key itself is rejected, and
 // QuotaError when every attempt hit the key's quota.
-export async function generateReview(input: ReviewInput, apiKey: string, deadline: number): Promise<Review | null> {
+export async function generateReview(input: ReviewInput, apiKey: string, deadline: number, signal?: AbortSignal): Promise<Review | null> {
   const ai = new GoogleGenAI({ apiKey });
   const prompt = buildPrompt(input);
   const grounded = {
@@ -140,6 +144,7 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
   const exhausted = new Set<string>();
 
   for (const [index, model] of attempts.entries()) {
+    if (signal?.aborted) return null;
     const remaining = deadline - Date.now();
     if (remaining < 4_000) break;
     // A model whose quota is used up won't recover seconds later; the
@@ -148,7 +153,7 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
     tried++;
     try {
       const response = await Promise.race([
-        ai.models.generateContent({ model, contents: prompt, config: { responseMimeType: "application/json" } }),
+        ai.models.generateContent({ model, contents: prompt, config: { responseMimeType: "application/json", abortSignal: signal } }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("AI review timed out")), remaining)),
       ]);
       return parseReview(response.text ?? "", grounded, input.facts);
@@ -157,6 +162,11 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
       console.error("AI review attempt failed", { attempt: index + 1, model, error: String(error).slice(0, 300) });
       if (isQuota(error)) {
         quotaFailures++;
+        exhausted.add(model);
+        continue;
+      }
+      if (isMissingModel(error)) {
+        console.error(`Gemini model "${model}" is unavailable; set GEMINI_MODEL / GEMINI_FALLBACK_MODELS to current names`);
         exhausted.add(model);
         continue;
       }

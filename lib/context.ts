@@ -50,8 +50,12 @@ export type GithubContext = {
 };
 
 const FILE_CHARS = FILE_READ_BYTES;
-// Sources plus manifest, CI and tests, with some headroom.
-const TOTAL_FILE_CHARS = SOURCE_BUDGET_BYTES + 40_000;
+// How much source code to read, adjustable with READ_BUDGET_KB (default 200).
+// Bigger reads see more of large repos but cost more Gemini tokens.
+export function sourceBudget(env: Record<string, string | undefined> = process.env) {
+  const kb = Number(env.READ_BUDGET_KB);
+  return Number.isFinite(kb) && kb >= 20 && kb <= 2_000 ? Math.round(kb * 1024) : SOURCE_BUDGET_BYTES;
+}
 const PARALLEL_DOWNLOADS = 16;
 
 // Runs `task` over `items` with at most `limit` in flight, keeping order.
@@ -83,7 +87,8 @@ async function readRawFiles(owner: string, repo: string, branch: string, picked:
     return { ...p, text: await res.text() };
   });
   const files: (Picked & { text: string })[] = [];
-  let budget = TOTAL_FILE_CHARS;
+  // Sources plus manifest, CI and tests, with some headroom.
+  let budget = sourceBudget() + 40_000;
   for (const r of results) {
     if (r.status !== "fulfilled" || !r.value || budget <= 0) continue;
     const text = r.value.text.slice(0, Math.min(FILE_CHARS, budget));
@@ -193,7 +198,7 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
         `File tree: ${stats.files} files, ${stats.sourceFiles} source, ${stats.testFiles} test, ${stats.ciWorkflows} CI workflow(s)${tree.truncated ? " (very large repo, list truncated)" : ""}`,
         `Top-level: ${[...new Set(entries.map((e) => e.path.split("/")[0]))].slice(0, 40).join(", ")}`,
       );
-      const files = await readRawFiles(owner, repo, branch, pickFiles(entries), timeoutMs);
+      const files = await readRawFiles(owner, repo, branch, pickFiles(entries, { budget: sourceBudget() }), timeoutMs);
       picked = files;
       facts.sourceFilesRead = files.filter((f) => f.role === "source").length;
       coverage = { read: facts.sourceFilesRead, total: Math.max(stats.sourceFiles, facts.sourceFilesRead) };

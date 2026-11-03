@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createLimiter, createRedisLimiter } from "@/lib/rate-limit";
+import { createLimiter, createMemoryLimiter, createRedisLimiter } from "@/lib/rate-limit";
+import { sourceBudget } from "@/lib/context";
 import { createPipeline, createTcpPipeline, pipelineFromEnv } from "@/lib/redis";
 
 // A tiny stand-in for Upstash's REST pipeline that runs the three commands we send.
@@ -97,5 +98,25 @@ describe("direct Redis connection", () => {
     expect(pipelineFromEnv({})).toBeNull();
     expect(pipelineFromEnv({ UPSTASH_REDIS_REST_URL: "https://r.dev", UPSTASH_REDIS_REST_TOKEN: "t" })).toBeTypeOf("function");
     expect(pipelineFromEnv({ REDIS_URL: "redis://127.0.0.1:1" })).toBeTypeOf("function");
+  });
+});
+
+describe("memory limiter housekeeping", () => {
+  it("sweeps expired visitors regularly instead of only past 10,000", () => {
+    let t = 0;
+    const limiter = createMemoryLimiter(5, 1000, () => t);
+    for (let i = 0; i < 150; i++) limiter.check(`old-${i}`);
+    t = 5000; // every old window has expired
+    for (let i = 0; i < 60; i++) limiter.check(`new-${i}`);
+    expect(limiter.size()).toBeLessThan(150);
+  });
+});
+
+describe("sourceBudget", () => {
+  it("reads READ_BUDGET_KB within sane bounds, else the default", () => {
+    expect(sourceBudget({ READ_BUDGET_KB: "500" })).toBe(512_000);
+    expect(sourceBudget({})).toBe(200_000);
+    expect(sourceBudget({ READ_BUDGET_KB: "5" })).toBe(200_000);
+    expect(sourceBudget({ READ_BUDGET_KB: "lots" })).toBe(200_000);
   });
 });
