@@ -168,7 +168,18 @@ export default function Home() {
       .catch(() => {});
   }, []);
   useEffect(() => loadBoard(), [loadBoard]);
+  // Bring the finished report to the top of the screen so it fits in one view.
+  // Two frames later, so the progress card above it is gone and the layout
+  // has settled before the scroll target is measured.
+  useEffect(() => {
+    if (!result) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [result]);
   const outputRef = useRef<HTMLDivElement>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<AbortController | null>(null);
   const formRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -380,9 +391,8 @@ export default function Home() {
         </section>
 
         <section ref={outputRef} className="mx-auto max-w-5xl scroll-mt-20 px-4 sm:px-6">
-          <AnimatePresence mode="wait">
-            {running && !result && !error && <div key="p" className="pt-12"><Progress steps={steps} /></div>}
-          </AnimatePresence>
+          {/* No exit animation: the card must leave the layout at once so the report scroll lands right. */}
+          {running && !result && !error && <div key="p" className="pt-12"><Progress steps={steps} /></div>}
           <AnimatePresence>
             {error && (
               <motion.div key="e" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} role="alert" className="card mt-12 flex items-start gap-4 p-6">
@@ -395,7 +405,7 @@ export default function Home() {
             )}
           </AnimatePresence>
           {result && (
-            <div className="pt-12">
+            <div ref={reportRef} className="mt-12 scroll-mt-4">
               <Report review={result.review} subject={result.subject} reviewedAt={result.reviewedAt} reused={result.reused} onReset={startOver} />
             </div>
           )}
