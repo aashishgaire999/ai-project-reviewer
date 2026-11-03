@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReviewEvent, StepId, StepStatus } from "@/lib/events";
+import { createEventParser } from "@/lib/ndjson";
 import type { BoardEntry, Review, Subject } from "@/lib/review-types";
 import { HeroWindow } from "./hero";
 import { Report } from "./report";
@@ -213,18 +214,23 @@ export default function Home() {
         const data = await res.json().catch(() => null);
         setError(data?.error || "Something went wrong. Try again.");
       } else {
-        // One JSON event per line; a chunk can end mid-line, so keep the remainder.
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-        let buffer = "";
+        let gotResult = false;
+        const parser = createEventParser(
+          (event) => {
+            if (event.type !== "step") gotResult = true;
+            handle(event);
+          },
+          (line) => console.warn("Skipped a malformed review event", line.slice(0, 200)),
+        );
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
-          buffer += value;
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const line of lines) if (line.trim()) handle(JSON.parse(line));
+          parser.push(value);
         }
-        if (buffer.trim()) handle(JSON.parse(buffer));
+        parser.end();
+        // The stream ended without a result or error, e.g. the server timed out.
+        if (!gotResult && !request.signal.aborted) setError("The review stopped before it finished. Try again.");
       }
     } catch {
       // A review cancelled by going home is not an error.

@@ -2,6 +2,7 @@ import { Agent, fetch as pinnedFetch } from "undici";
 import { FILE_READ_BYTES, pickFiles, readDepth, SOURCE_BUDGET_BYTES, treeStats, type Picked, type TreeEntry } from "./pick-files";
 import type { Coverage, Depth } from "./review-types";
 import { UNKNOWN_FACTS, type Facts } from "./scoring";
+import { extractMeta } from "./html-meta";
 import { parsePublicHttpsUrl, safeLookup } from "./safe-url";
 
 // Gathers what the reviewer actually looks at: repo metadata, README, root
@@ -92,6 +93,36 @@ async function readRawFiles(owner: string, repo: string, branch: string, picked:
   return files;
 }
 
+// Why a repo couldn't be read, so the visitor gets the real reason.
+export type GithubFailure = { reason: "not_found" | "rate_limited" | "unavailable"; resetAt?: number };
+
+export function classifyGithubFailure(res: Response | null): GithubFailure {
+  if (!res) return { reason: "unavailable" };
+  const remaining = res.headers.get("x-ratelimit-remaining");
+  const reset = Number(res.headers.get("x-ratelimit-reset"));
+  if (res.status === 429 || (res.status === 403 && remaining === "0")) {
+    return { reason: "rate_limited", ...(Number.isFinite(reset) && reset > 0 ? { resetAt: reset * 1000 } : {}) };
+  }
+  if (res.status === 404 || res.status === 451) return { reason: "not_found" };
+  return { reason: "unavailable" };
+}
+
+export class GithubFetchError extends Error {
+  constructor(public failure: GithubFailure) {
+    super(`GitHub fetch failed: ${failure.reason}`);
+  }
+}
+
+export function githubFailureMessage(failure: GithubFailure, now = Date.now()) {
+  if (failure.reason === "not_found") return "Couldn't find that repository. Check the link, and that the repo is public.";
+  if (failure.reason === "rate_limited") {
+    const minutes = failure.resetAt ? Math.max(1, Math.ceil((failure.resetAt - now) / 60_000)) : null;
+    return `GitHub's request limit for this site is used up${minutes ? `; it resets in about ${minutes} min` : ""}. Try again then.`;
+  }
+  return "GitHub didn't respond. Try again in a minute.";
+}
+
+// Throws GithubFetchError when the repo itself can't be read.
 export async function fetchGithubContext(owner: string, repo: string, timeoutMs: number): Promise<GithubContext | null> {
   const base = `https://api.github.com/repos/${owner}/${repo}`;
   const headers: Record<string, string> = {
@@ -110,7 +141,7 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   const ok = (r: PromiseSettledResult<Response>) => (r.status === "fulfilled" && r.value.ok ? r.value : null);
 
   const meta = ok(repoRes);
-  if (!meta) return null;
+  if (!meta) throw new GithubFetchError(classifyGithubFailure(repoRes.status === "fulfilled" ? repoRes.value : null));
   const parts: string[] = [];
   const read: string[] = [];
   let picked: Picked[] = [];
@@ -230,8 +261,7 @@ export async function fetchLiveSiteContext(liveUrl: URL, timeoutMs: number) {
   try {
     const html = await fetchPublicPage(liveUrl, timeoutMs);
     if (html === null) return null;
-    const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
-    const description = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i)?.[1]?.trim();
+    const { title, description } = extractMeta(html);
     return [
       title && `Page title: ${title}`,
       description && `Meta description: ${description}`,
