@@ -1,6 +1,6 @@
 import { Agent, fetch as pinnedFetch } from "undici";
-import { pickFiles, readDepth, treeStats, type Picked, type TreeEntry } from "./pick-files";
-import type { Depth } from "./review-types";
+import { FILE_READ_BYTES, pickFiles, readDepth, SOURCE_BUDGET_BYTES, treeStats, type Picked, type TreeEntry } from "./pick-files";
+import type { Coverage, Depth } from "./review-types";
 import { UNKNOWN_FACTS, type Facts } from "./scoring";
 import { parsePublicHttpsUrl, safeLookup } from "./safe-url";
 
@@ -44,24 +44,43 @@ export type GithubContext = {
   // Exactly which files the review saw, for the "Read:" line on the page.
   read: string[];
   depth: Depth;
+  coverage: Coverage | null;
   facts: Facts;
 };
 
-const FILE_CHARS = 8_000;
-const TOTAL_FILE_CHARS = 40_000;
+const FILE_CHARS = FILE_READ_BYTES;
+// Sources plus manifest, CI and tests, with some headroom.
+const TOTAL_FILE_CHARS = SOURCE_BUDGET_BYTES + 40_000;
+const PARALLEL_DOWNLOADS = 16;
+
+// Runs `task` over `items` with at most `limit` in flight, keeping order.
+async function mapLimited<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        results[i] = { status: "fulfilled", value: await task(items[i]) };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 async function readRawFiles(owner: string, repo: string, branch: string, picked: Picked[], timeoutMs: number) {
   const ref = branch.split("/").map(encodeURIComponent).join("/");
-  const results = await Promise.allSettled(
-    picked.map(async (p) => {
-      const path = p.path.split("/").map(encodeURIComponent).join("/");
-      const res = await fetchWithTimeout(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`, timeoutMs, {
-        headers: { "User-Agent": "ai-project-reviewer" },
-      });
-      if (!res.ok) return null;
-      return { ...p, text: await res.text() };
-    }),
-  );
+  const results = await mapLimited(picked, PARALLEL_DOWNLOADS, async (p) => {
+    const path = p.path.split("/").map(encodeURIComponent).join("/");
+    const res = await fetchWithTimeout(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`, timeoutMs, {
+      headers: { "User-Agent": "ai-project-reviewer" },
+    });
+    if (!res.ok) return null;
+    return { ...p, text: await res.text() };
+  });
   const files: (Picked & { text: string })[] = [];
   let budget = TOTAL_FILE_CHARS;
   for (const r of results) {
@@ -95,6 +114,7 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   const parts: string[] = [];
   const read: string[] = [];
   let picked: Picked[] = [];
+  let coverage: Coverage | null = null;
   const facts: Facts = { ...UNKNOWN_FACTS };
   let pushedAt: string | null = null;
   let fullName = `${owner}/${repo}`;
@@ -145,6 +165,8 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
       const files = await readRawFiles(owner, repo, branch, pickFiles(entries), timeoutMs);
       picked = files;
       facts.sourceFilesRead = files.filter((f) => f.role === "source").length;
+      coverage = { read: facts.sourceFilesRead, total: Math.max(stats.sourceFiles, facts.sourceFilesRead) };
+      parts.push(`Coverage: read ${coverage.read} of ${coverage.total} source files${coverage.read < coverage.total ? " (the most central ones)" : " (all of them)"}.`);
       for (const f of files) {
         read.push(f.path);
         parts.push(`FILE ${f.path} (${f.role}):\n${f.text}`);
@@ -153,7 +175,7 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   } catch {
     // Keep whatever was collected before the failure.
   }
-  return parts.length ? { text: parts.join("\n\n"), pushedAt, fullName, read, depth: readDepth(picked), facts } : null;
+  return parts.length ? { text: parts.join("\n\n"), pushedAt, fullName, read, depth: readDepth(coverage?.read ?? 0, coverage?.total ?? 0, picked.some((p) => p.role === "manifest")), coverage, facts } : null;
 }
 
 // Follows redirects by hand so every hop's URL is re-checked; the pinned

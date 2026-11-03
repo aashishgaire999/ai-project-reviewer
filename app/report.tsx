@@ -46,20 +46,30 @@ export function groundingNote(review: Review, kind: Subject["kind"]) {
   const g = review.grounded;
   if (kind === "site") return { label: "Site only", note: "Only the live site was read. The code was not inspected." };
   if (!g.depth) return { label: "Surface read", note: "Older review: based on the README and top-level file names only." };
-  const files = (g.read ?? []).filter((f) => f !== "README").length;
-  if (g.depth === "deep") return { label: "Deep read", note: `Read the README and ${files} project files, including core source. Files not listed were not opened.` };
-  if (g.depth === "partial") return { label: "Partial read", note: "Read the README and a few files. Treat the scores as rough." };
+  const c = g.coverage;
+  const share = c && c.total > 0 ? ` (${Math.round((c.read / c.total) * 100)}%)` : "";
+  const counted = c ? `${c.read} of ${c.total} source files${share}` : null;
+  if (g.depth === "full") return { label: "Full read", note: `Read every source file${counted ? `: ${counted}` : ""}, plus the README and project settings.` };
+  if (g.depth === "deep") return { label: "Deep read", note: `Read ${counted ?? "most core source files"}, the most central ones first. Files not listed were not opened.` };
+  if (g.depth === "partial") return { label: "Partial read", note: `Read ${counted ?? "a few files"}. Treat the scores as rough.` };
   return { label: "Surface read", note: "Only the README and repo details were readable. The scores are a rough guess." };
 }
 
 function ReadLine({ read }: { read: string[] }) {
+  const [all, setAll] = useState(false);
   if (!read.length) return null;
-  const shown = read.slice(0, 3);
+  const shown = all ? read : read.slice(0, 3);
   return (
-    <p className="mt-1 truncate text-xs text-[var(--text-2)]" title={`Read: ${read.join(", ")}`}>
-      Read: <span className="font-mono text-[var(--text)]">{shown.join(", ")}</span>
-      {read.length > 3 && <span> +{read.length - 3} more</span>}
-    </p>
+    <div className="mt-1 text-xs text-[var(--text-2)]">
+      <p className={all ? "" : "truncate"} title={all ? undefined : `Read: ${read.join(", ")}`}>
+        Read: <span className="font-mono text-[var(--text)]">{shown.join(", ")}</span>
+        {read.length > 3 && (
+          <button onClick={() => setAll((a) => !a)} className="ml-1.5 text-[var(--accent)] hover:underline">
+            {all ? "show less" : `+${read.length - 3} more`}
+          </button>
+        )}
+      </p>
+    </div>
   );
 }
 
@@ -255,6 +265,7 @@ export function Report({ review, subject, reviewedAt, reused, onReset }: { revie
               <Actions onCopy={copy} copied={copied} onReset={onReset} />
             </div>
             <ReadLine read={review.grounded.read ?? []} />
+            <p className="mt-1 text-xs text-[var(--text-2)]">{grounding.note}</p>
             {reused && (
               <p className="mt-2 text-xs text-[var(--text-2)]">
                 Saved review from {new Date(reviewedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })} ·{" "}

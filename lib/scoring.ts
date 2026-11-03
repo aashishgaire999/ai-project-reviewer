@@ -4,7 +4,9 @@ import { CATEGORIES, type Category } from "./review-types";
 // picked by the model, so it always matches the breakdown. Hard caps come
 // from facts the server checked itself, which the model cannot talk past.
 
-export const SCORING_VERSION = 2;
+// Bump when scoring or how much code is read changes, so saved reviews made
+// under older rules are redone instead of reused.
+export const SCORING_VERSION = 3;
 
 const WEIGHTS: Record<Category, number> = { code_quality: 0.35, completeness: 0.25, documentation: 0.2, originality: 0.2 };
 

@@ -7,7 +7,10 @@ export type Category = (typeof CATEGORIES)[number];
 // the project it was seen (a file path or page), shown when expanded.
 export type Item = { title: string; detail: string; evidence: string };
 
-export type Depth = "deep" | "partial" | "surface";
+export type Depth = "full" | "deep" | "partial" | "surface";
+
+// How many of the repo's source files the review read.
+export type Coverage = { read: number; total: number };
 
 export type Review = {
   score: number;
@@ -25,6 +28,7 @@ export type Review = {
     // What the review actually read. Missing on reviews saved before this existed.
     read?: string[];
     depth?: Depth;
+    coverage?: Coverage;
     // Caps the server applied from facts it checked, e.g. "Completeness capped at 6: no test files found".
     adjustments?: string[];
     // Which scoring rules produced this review. Older reviews have none.

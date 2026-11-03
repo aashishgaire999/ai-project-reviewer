@@ -98,6 +98,7 @@ export async function POST(request: Request) {
             liveSiteContext,
             read: github?.read,
             depth: github?.depth,
+            coverage: github?.coverage,
             facts: github?.facts,
           },
           apiKey,
