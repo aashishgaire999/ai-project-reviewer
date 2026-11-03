@@ -9,11 +9,13 @@ export type ReviewInput = {
   // Files the GitHub fetch actually read, and how deep that went.
   read?: string[];
   depth?: Depth;
+  facts?: Facts;
 };
 
 export { CATEGORIES } from "./review-types";
 export type { Category, Review } from "./review-types";
 import { CATEGORIES, toItems, type Category, type Depth, type Review } from "./review-types";
+import { applyCaps, overallScore, SCORING_VERSION, UNKNOWN_FACTS, type Facts } from "./scoring";
 
 export function buildPrompt({ githubUrl, liveUrl, description, githubContext, liveSiteContext }: ReviewInput) {
   const siteOnly = !githubUrl;
@@ -46,7 +48,6 @@ Respond ONLY with JSON in exactly this shape. Every list item is an object:
 - "evidence": the file path, file name or page where you saw it (for example "lib/auth.ts" or "README"), or "" if it is general
 
 {
-  "score": <integer 1-10>,
   "summary": "<2-3 sentences: what the project is and does>",
   "improvements": [<item>, <item>, <item>],   // most impactful first
   "roadmap": [<item>, <item>, <item>],        // in the order to do them
@@ -56,7 +57,12 @@ Respond ONLY with JSON in exactly this shape. Every list item is an object:
   "one_liner": "<one sentence on the project's potential>"
 }
 
-Score: 1-4 needs major work, 5-6 decent start, 7-8 solid, 9 excellent, 10 exceptional.`;
+SCORING. Be strict and use the whole 0-10 scale. Most hobby and student projects land between 4 and 7 in most categories. A 9 or 10 needs evidence you can point to in the files above. Do not default to 7 or 8.
+- code_quality: 9-10 production-grade structure, error handling, types and tests on core logic; 7-8 clean with minor issues; 5-6 works but with clear problems (little error handling, mixed concerns, duplication); 3-4 fragile or hard to follow; 0-2 barely works.
+- completeness: 9-10 feature-complete, deployed, tested and with CI; 7-8 main features done with small gaps; 5-6 core works but obvious features, tests or edge cases are missing; 3-4 a prototype; 0-2 a stub.
+- documentation: 9-10 README covers what, why, setup, usage and architecture; 7-8 clear setup and usage; 5-6 brief but usable; 3-4 a title and little else; 0-2 nothing useful.
+- originality: 9-10 a genuinely new idea or approach; 7-8 a familiar idea with a real twist; 5 a common project (todo, weather, chat, clone) done the standard way; 3-4 close to a tutorial; 0-2 a copy.
+The overall score is calculated from these four, so make each one honest on its own.`;
 }
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(n)));
@@ -68,22 +74,23 @@ const text = (v: unknown, max = 600) => (typeof v === "string" ? v.trim().slice(
 
 // Model output is untrusted: keep only well-formed fields, clamp numbers, and
 // reject the review outright if the score is missing.
-export function parseReview(raw: string, grounded: Review["grounded"]): Review {
+export function parseReview(raw: string, grounded: Review["grounded"], facts: Facts = UNKNOWN_FACTS): Review {
   const json = raw.match(/\{[\s\S]*\}/)?.[0];
   if (!json) throw new Error("AI review returned no JSON");
   const data = JSON.parse(json);
-  const score = toNumber(data?.score);
-  if (!Number.isFinite(score)) throw new Error("AI review returned no score");
-  const breakdown = Object.fromEntries(
+  const rawBreakdown = Object.fromEntries(
     CATEGORIES.map((key) => {
       const value = toNumber(data?.breakdown?.[key]);
       // Without the code there is nothing to judge code quality on, whatever the model says.
       if (key === "code_quality" && !grounded.repository) return [key, null];
-      return [key, Number.isFinite(value) ? clamp(value, 0, 10) : 0];
+      return [key, Number.isFinite(value) ? clamp(value, 0, 10) : null];
     }),
   ) as Record<Category, number | null>;
+  const { breakdown, adjustments } = applyCaps(rawBreakdown, facts);
+  const score = overallScore(breakdown);
+  if (score === null) throw new Error("AI review returned no score");
   return {
-    score: clamp(score, 1, 10),
+    score,
     summary: text(data.summary),
     strengths: toItems(data.strengths),
     improvements: toItems(data.improvements),
@@ -91,7 +98,7 @@ export function parseReview(raw: string, grounded: Review["grounded"]): Review {
     breakdown,
     references: toItems(data.references, 4),
     one_liner: text(data.one_liner, 300),
-    grounded,
+    grounded: { ...grounded, adjustments, scoring: SCORING_VERSION },
   };
 }
 
@@ -131,7 +138,7 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
         ai.models.generateContent({ model, contents: prompt, config: { responseMimeType: "application/json" } }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("AI review timed out")), remaining)),
       ]);
-      return parseReview(response.text ?? "", grounded);
+      return parseReview(response.text ?? "", grounded, input.facts);
     } catch (error) {
       if (isInvalidKey(error)) throw new InvalidKeyError("Gemini rejected the API key");
       console.error("AI review attempt failed", { attempt: index + 1, model, error: String(error).slice(0, 300) });

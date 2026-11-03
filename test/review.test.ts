@@ -4,47 +4,41 @@ import { createRateLimiter } from "@/lib/rate-limit";
 
 const grounded = { repository: true, liveSite: false };
 
+const bd = (code: unknown, orig: unknown, comp: unknown, docs: unknown) => ({ code_quality: code, originality: orig, completeness: comp, documentation: docs });
+
 describe("parseReview", () => {
-  it("clamps numbers and drops malformed fields", () => {
+  it("clamps numbers, drops malformed fields, and ignores a score the model makes up", () => {
     const review = parseReview(
-      'Sure! {"score": 14, "summary": "A todo app.", "strengths": ["Tests", 3, ""], "breakdown": {"code_quality": -2, "originality": 7.6}}',
+      `Sure! ${JSON.stringify({ score: 10, summary: "A todo app.", strengths: ["Tests", 3, ""], breakdown: bd(-2, 7.6, 6, 5) })}`,
       grounded,
     );
-    expect(review.score).toBe(10);
+    expect(review.breakdown).toEqual({ code_quality: 0, originality: 8, completeness: 6, documentation: 5 });
+    // 0*.35 + 8*.2 + 6*.25 + 5*.2 = 4.1, not the model's 10
+    expect(review.score).toBe(4);
     expect(review.strengths).toEqual([{ title: "Tests", detail: "", evidence: "" }]);
-    expect(review.breakdown).toEqual({ code_quality: 0, originality: 8, completeness: 0, documentation: 0 });
     expect(review.improvements).toEqual([]);
-    expect(review.grounded).toBe(grounded);
+    expect(review.grounded).toMatchObject({ ...grounded, scoring: 2, adjustments: [] });
   });
-  it("accepts numeric strings, rounds, and clamps every breakdown field", () => {
-    const review = parseReview(
-      JSON.stringify({ score: "7.5", breakdown: { code_quality: "9", originality: 99, completeness: null, documentation: "lots" } }),
-      grounded,
-    );
-    expect(review.score).toBe(8);
-    expect(review.breakdown).toEqual({ code_quality: 9, originality: 10, completeness: 0, documentation: 0 });
+  it("accepts numeric strings and treats missing categories as not assessed", () => {
+    const review = parseReview(JSON.stringify({ breakdown: bd("9", 99, null, "lots") }), grounded);
+    expect(review.breakdown).toEqual({ code_quality: 9, originality: 10, completeness: null, documentation: null });
+    // (9*.35 + 10*.2) / .55 = 9.36
+    expect(review.score).toBe(9);
   });
-  it("clamps a zero or negative score up to 1", () => {
-    expect(parseReview('{"score": 0}', grounded).score).toBe(1);
-    expect(parseReview('{"score": -4}', grounded).score).toBe(1);
+  it("never goes below 1", () => {
+    expect(parseReview(JSON.stringify({ breakdown: bd(0, 0, 0, 0) }), grounded).score).toBe(1);
   });
   it("caps list length and text length", () => {
     const review = parseReview(
-      JSON.stringify({ score: 5, strengths: Array.from({ length: 9 }, (_, i) => `s${i}`), summary: "x".repeat(5000), references: "not a list" }),
+      JSON.stringify({ breakdown: bd(5, 5, 5, 5), strengths: Array.from({ length: 9 }, (_, i) => `s${i}`), summary: "x".repeat(5000), references: "not a list" }),
       grounded,
     );
     expect(review.strengths).toHaveLength(5);
     expect(review.summary).toHaveLength(600);
     expect(review.references).toEqual([]);
   });
-  it("rejects a non-numeric score", () => {
-    expect(() => parseReview('{"score": "great"}', grounded)).toThrow(/no score/);
-    expect(() => parseReview('{"score": null}', grounded)).toThrow(/no score/);
-    expect(() => parseReview('{"score": ""}', grounded)).toThrow(/no score/);
-    expect(() => parseReview('{"score": true}', grounded)).toThrow(/no score/);
-    expect(() => parseReview('{"score": []}', grounded)).toThrow(/no score/);
-  });
-  it("rejects output without a score", () => {
+  it("rejects output with no usable category score", () => {
+    expect(() => parseReview(JSON.stringify({ breakdown: bd("great", null, "", true) }), grounded)).toThrow(/no score/);
     expect(() => parseReview('{"summary": "x"}', grounded)).toThrow(/no score/);
     expect(() => parseReview("no json here", grounded)).toThrow(/no JSON/);
   });
@@ -52,13 +46,18 @@ describe("parseReview", () => {
     expect(isTransient(new Error("AI review returned no score"))).toBe(true);
     expect(isTransient(new Error("API key not valid"))).toBe(false);
   });
+  it("applies the server's caps whatever the model says", () => {
+    const review = parseReview(JSON.stringify({ breakdown: bd(9, 7, 9, 9) }), grounded, { testFiles: 0, ciWorkflows: 1, readme: true, sourceFilesRead: 4 });
+    expect(review.breakdown).toEqual({ code_quality: 7, originality: 7, completeness: 6, documentation: 9 });
+    expect(review.grounded.adjustments).toEqual(["Completeness capped at 6: no test files found", "Code quality capped at 7: no test files found"]);
+  });
 });
 
 describe("structured items", () => {
   it("keeps title, detail and evidence and drops items without a title", () => {
     const review = parseReview(
       JSON.stringify({
-        score: 6,
+        breakdown: { code_quality: 6, originality: 6, completeness: 6, documentation: 6 },
         improvements: [
           { title: "No input validation", detail: "Form data reaches the DB unchecked.", evidence: "app/api/route.ts" },
           { detail: "missing title" },
@@ -82,9 +81,10 @@ describe("structured items", () => {
 
 describe("site-only reviews", () => {
   it("never reports a code quality score without the code", () => {
-    const review = parseReview('{"score": 7, "breakdown": {"code_quality": 9, "originality": 6}}', { repository: false, liveSite: true });
+    const review = parseReview('{"breakdown": {"code_quality": 9, "originality": 6}}', { repository: false, liveSite: true });
     expect(review.breakdown.code_quality).toBeNull();
     expect(review.breakdown.originality).toBe(6);
+    expect(review.score).toBe(6);
   });
   it("tells the model it only has the site", () => {
     const prompt = buildPrompt({ githubUrl: null, liveUrl: "https://x.dev/", description: "", githubContext: null, liveSiteContext: "Page title: X" });

@@ -1,6 +1,7 @@
 import { Agent, fetch as pinnedFetch } from "undici";
 import { pickFiles, readDepth, treeStats, type Picked, type TreeEntry } from "./pick-files";
 import type { Depth } from "./review-types";
+import { UNKNOWN_FACTS, type Facts } from "./scoring";
 import { parsePublicHttpsUrl, safeLookup } from "./safe-url";
 
 // Gathers what the reviewer actually looks at: repo metadata, README, root
@@ -43,6 +44,7 @@ export type GithubContext = {
   // Exactly which files the review saw, for the "Read:" line on the page.
   read: string[];
   depth: Depth;
+  facts: Facts;
 };
 
 const FILE_CHARS = 8_000;
@@ -93,6 +95,7 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   const parts: string[] = [];
   const read: string[] = [];
   let picked: Picked[] = [];
+  const facts: Facts = { ...UNKNOWN_FACTS };
   let pushedAt: string | null = null;
   let fullName = `${owner}/${repo}`;
   try {
@@ -119,6 +122,7 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
       }
     }
     const readme = ok(readmeRes);
+    facts.readme = Boolean(readme);
     if (readme) read.push("README");
     parts.push(readme ? `README:\n${(await readme.text()).slice(0, 4000)}` : "README: none found");
 
@@ -129,12 +133,18 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
       const tree = (await treeRes.json()) as { tree?: TreeEntry[]; truncated?: boolean };
       const entries = Array.isArray(tree.tree) ? tree.tree : [];
       const stats = treeStats(entries);
+      // A truncated tree may be missing files, so it can't prove anything is absent.
+      if (!tree.truncated) {
+        facts.testFiles = stats.testFiles;
+        facts.ciWorkflows = stats.ciWorkflows;
+      }
       parts.push(
         `File tree: ${stats.files} files, ${stats.sourceFiles} source, ${stats.testFiles} test, ${stats.ciWorkflows} CI workflow(s)${tree.truncated ? " (very large repo, list truncated)" : ""}`,
         `Top-level: ${[...new Set(entries.map((e) => e.path.split("/")[0]))].slice(0, 40).join(", ")}`,
       );
       const files = await readRawFiles(owner, repo, branch, pickFiles(entries), timeoutMs);
       picked = files;
+      facts.sourceFilesRead = files.filter((f) => f.role === "source").length;
       for (const f of files) {
         read.push(f.path);
         parts.push(`FILE ${f.path} (${f.role}):\n${f.text}`);
@@ -143,7 +153,7 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   } catch {
     // Keep whatever was collected before the failure.
   }
-  return parts.length ? { text: parts.join("\n\n"), pushedAt, fullName, read, depth: readDepth(picked) } : null;
+  return parts.length ? { text: parts.join("\n\n"), pushedAt, fullName, read, depth: readDepth(picked), facts } : null;
 }
 
 // Follows redirects by hand so every hop's URL is re-checked; the pinned

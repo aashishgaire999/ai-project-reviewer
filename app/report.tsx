@@ -3,7 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useState } from "react";
 import { CATEGORIES, type Category, type Item, type Review, type Subject } from "@/lib/review-types";
-import { Rings } from "./rings";
+import { CountUp, Rings } from "./rings";
 
 const LABELS: Record<Category, string> = {
   code_quality: "Code quality",
@@ -228,57 +228,56 @@ export function Report({ review, subject, reviewedAt, reused, onReset }: { revie
   return (
     <article aria-live="polite" className="space-y-3">
       <motion.div
-        className="card !rounded-2xl p-4 sm:p-5"
-        initial={reduce ? false : { opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="card overflow-hidden p-6 sm:p-8"
+        initial={reduce ? false : { opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="flex items-start gap-4">
-          <Rings values={CATEGORIES.map((c) => review.breakdown[c] ?? 0)} size={84} stroke={6} gap={2} delay={0.15}>
-            <span className="text-xl font-semibold tracking-tight" aria-label={`Score ${review.score} out of 10`}>
-              {review.score}
-            </span>
-          </Rings>
+        <div className="flex flex-col items-center gap-7 md:flex-row md:items-center md:gap-10">
+          <div className="flex shrink-0 flex-col items-center gap-3" aria-label={`Score ${review.score} out of 10, ${verdict(review.score)}`}>
+            <Rings values={CATEGORIES.map((c) => review.breakdown[c] ?? 0)} size={220} stroke={14} gap={4} delay={0.2}>
+              <p className="text-5xl font-semibold leading-none tracking-tight">
+                <CountUp to={review.score} delay={0.2} />
+              </p>
+            </Rings>
+            <span className="rounded-full bg-[var(--surface-2)] px-3 py-1 text-xs font-medium">{verdict(review.score)}</span>
+          </div>
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                 <a href={subject.url} className="truncate font-mono text-sm text-[var(--accent)] hover:underline">
                   {subject.label}
                 </a>
-                <span className="shrink-0 rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-medium" title={grounding.note}>
+                <span className="shrink-0 rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-xs font-medium" title={grounding.note}>
                   {grounding.label}
                 </span>
               </div>
-              <div className="hidden sm:block">
-                <Actions onCopy={copy} copied={copied} onReset={onReset} />
-              </div>
+              <Actions onCopy={copy} copied={copied} onReset={onReset} />
             </div>
             <ReadLine read={review.grounded.read ?? []} />
-            <p className="mt-1.5 line-clamp-3 text-[15px] font-medium leading-snug sm:line-clamp-2" title={review.summary}>
-              {review.summary}
-            </p>
+            {reused && (
+              <p className="mt-2 text-xs text-[var(--text-2)]">
+                Saved review from {new Date(reviewedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })} ·{" "}
+                {subject.kind === "repo" ? "same code, same score" : "refreshes weekly"}
+              </p>
+            )}
+            <p className="mt-3 text-xl font-semibold leading-snug tracking-tight sm:text-2xl">{review.summary}</p>
+            {review.one_liner && <p className="mt-2 text-[var(--text-2)]">{review.one_liner}</p>}
+            <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-2.5">
+              {CATEGORIES.map((key, i) => (
+                <div key={key} className="flex items-center justify-between gap-3 border-t border-[var(--hairline)] pt-2.5">
+                  <dt className="flex items-center gap-2 text-sm">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: `var(--ring-${i + 1})` }} />
+                    {LABELS[key]}
+                  </dt>
+                  <dd className="text-sm font-semibold">{formatValue(review.breakdown[key])}</dd>
+                </div>
+              ))}
+            </dl>
+            {(review.grounded.adjustments?.length ?? 0) > 0 && (
+              <p className="mt-3 text-xs text-[var(--text-2)]">{review.grounded.adjustments!.join(" · ")}</p>
+            )}
           </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t border-[var(--hairline)] pt-3 text-xs">
-          <dl className="flex flex-wrap gap-x-4 gap-y-1">
-            {CATEGORIES.map((key, i) => (
-              <div key={key} className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full" style={{ background: `var(--ring-${i + 1})` }} />
-                <dt className="text-[var(--text-2)]">{LABELS[key]}</dt>
-                <dd className="font-semibold">{formatValue(review.breakdown[key])}</dd>
-              </div>
-            ))}
-          </dl>
-          {reused && (
-            <span className="text-[var(--text-2)]">
-              Saved review from {new Date(reviewedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })} ·{" "}
-              {subject.kind === "repo" ? "same code, same score" : "refreshes weekly"}
-            </span>
-          )}
-        </div>
-        <div className="mt-3 sm:hidden">
-          <Actions onCopy={copy} copied={copied} onReset={onReset} />
         </div>
       </motion.div>
 
