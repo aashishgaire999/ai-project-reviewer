@@ -4,7 +4,7 @@
 
 Paste a public GitHub repo and get an honest code review, grounded in what is actually in the repo rather than in what its description claims.
 
-It reads the repository's metadata, README, top-level files and language mix from the GitHub API, plus the visible text of the live site if you give one. Gemini then scores the project from 1 to 10 across code quality, originality, completeness and documentation, and lists strengths, problems and next steps.
+It reads the repository's metadata, README and full file list from the GitHub API, then opens the files that matter: the project manifest (e.g. `package.json`), a CI workflow, a test, and up to five core source files, skipping dependencies, build output and lock files. The result page lists exactly which files were read and labels the review as a deep, partial or surface read. Every point cites the file it was seen in. Gemini then scores the project from 1 to 10 across code quality, originality, completeness and documentation, and lists strengths, problems and next steps.
 
 Started as the review pipeline behind [Codyza](https://codyza.com), where every project submission gets an AI review. This is a standalone, open-source version.
 

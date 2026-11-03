@@ -96,6 +96,8 @@ export async function POST(request: Request) {
             description,
             githubContext: github?.text ?? null,
             liveSiteContext,
+            read: github?.read,
+            depth: github?.depth,
           },
           apiKey,
           deadline,

@@ -39,7 +39,7 @@ const review = (score: number): Review => ({
   breakdown: { code_quality: score, originality: 5, completeness: 5, documentation: 5 },
   references: [],
   one_liner: "",
-  grounded: { repository: true, liveSite: false },
+  grounded: { repository: true, liveSite: false, read: ["README"], depth: "deep" },
 });
 
 const saved = (owner: string, repo: string, score: number, at: string, isPublic = true, version = "v1"): SavedReview => ({
@@ -67,6 +67,11 @@ describe("canReuse", () => {
     expect(canReuse(s, "v1")).toBe(true);
     expect(canReuse(s, "v2")).toBe(false);
     expect(canReuse({ ...s, version: null }, null)).toBe(false);
+  });
+  it("does not reuse reviews made before source files were read", () => {
+    const s = saved("a", "b", 7, "2026-10-01T00:00:00Z");
+    const old = { ...s, review: { ...s.review, grounded: { repository: true, liveSite: false } } };
+    expect(canReuse(old, "v1")).toBe(false);
   });
   it("reuses a site review for a week", () => {
     const site: SavedReview = { ...saved("a", "b", 7, "2026-10-01T00:00:00Z"), subject: subjectForSite(new URL("https://x.dev")), version: null };

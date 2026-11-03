@@ -11,7 +11,7 @@ describe("parseReview", () => {
       grounded,
     );
     expect(review.score).toBe(10);
-    expect(review.strengths).toEqual(["Tests"]);
+    expect(review.strengths).toEqual([{ title: "Tests", detail: "", evidence: "" }]);
     expect(review.breakdown).toEqual({ code_quality: 0, originality: 8, completeness: 0, documentation: 0 });
     expect(review.improvements).toEqual([]);
     expect(review.grounded).toBe(grounded);
@@ -51,6 +51,32 @@ describe("parseReview", () => {
   it("treats a missing score as worth retrying", () => {
     expect(isTransient(new Error("AI review returned no score"))).toBe(true);
     expect(isTransient(new Error("API key not valid"))).toBe(false);
+  });
+});
+
+describe("structured items", () => {
+  it("keeps title, detail and evidence and drops items without a title", () => {
+    const review = parseReview(
+      JSON.stringify({
+        score: 6,
+        improvements: [
+          { title: "No input validation", detail: "Form data reaches the DB unchecked.", evidence: "app/api/route.ts" },
+          { detail: "missing title" },
+          { title: "  Thin README  ", detail: 42 },
+        ],
+      }),
+      grounded,
+    );
+    expect(review.improvements).toEqual([
+      { title: "No input validation", detail: "Form data reaches the DB unchecked.", evidence: "app/api/route.ts" },
+      { title: "Thin README", detail: "", evidence: "" },
+    ]);
+  });
+  it("asks the model for items with evidence, most impactful fix first", () => {
+    const prompt = buildPrompt({ githubUrl: "https://github.com/a/b", liveUrl: null, description: "", githubContext: "FILE x.ts:\ncode", liveSiteContext: null });
+    expect(prompt).toContain('"evidence"');
+    expect(prompt).toContain("most impactful first");
+    expect(prompt).toContain("Judge code quality from the FILE contents");
   });
 });
 

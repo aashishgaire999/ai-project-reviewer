@@ -1,4 +1,6 @@
 import { Agent, fetch as pinnedFetch } from "undici";
+import { pickFiles, readDepth, treeStats, type Picked, type TreeEntry } from "./pick-files";
+import type { Depth } from "./review-types";
 import { parsePublicHttpsUrl, safeLookup } from "./safe-url";
 
 // Gathers what the reviewer actually looks at: repo metadata, README, root
@@ -34,7 +36,40 @@ export function stripHtml(html: string, maxLength: number) {
     .slice(0, maxLength);
 }
 
-export type GithubContext = { text: string; pushedAt: string | null; fullName: string };
+export type GithubContext = {
+  text: string;
+  pushedAt: string | null;
+  fullName: string;
+  // Exactly which files the review saw, for the "Read:" line on the page.
+  read: string[];
+  depth: Depth;
+};
+
+const FILE_CHARS = 8_000;
+const TOTAL_FILE_CHARS = 40_000;
+
+async function readRawFiles(owner: string, repo: string, branch: string, picked: Picked[], timeoutMs: number) {
+  const ref = branch.split("/").map(encodeURIComponent).join("/");
+  const results = await Promise.allSettled(
+    picked.map(async (p) => {
+      const path = p.path.split("/").map(encodeURIComponent).join("/");
+      const res = await fetchWithTimeout(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`, timeoutMs, {
+        headers: { "User-Agent": "ai-project-reviewer" },
+      });
+      if (!res.ok) return null;
+      return { ...p, text: await res.text() };
+    }),
+  );
+  const files: (Picked & { text: string })[] = [];
+  let budget = TOTAL_FILE_CHARS;
+  for (const r of results) {
+    if (r.status !== "fulfilled" || !r.value || budget <= 0) continue;
+    const text = r.value.text.slice(0, Math.min(FILE_CHARS, budget));
+    budget -= text.length;
+    files.push({ ...r.value, text: text.length < r.value.text.length ? `${text}\n… (truncated)` : text });
+  }
+  return files;
+}
 
 export async function fetchGithubContext(owner: string, repo: string, timeoutMs: number): Promise<GithubContext | null> {
   const base = `https://api.github.com/repos/${owner}/${repo}`;
@@ -46,10 +81,9 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
 
   const get = (path: string, accept?: string) =>
     fetchWithTimeout(`${base}${path}`, timeoutMs, { headers: accept ? { ...headers, Accept: accept } : headers });
-  const [repoRes, readmeRes, rootRes, langRes] = await Promise.allSettled([
+  const [repoRes, readmeRes, langRes] = await Promise.allSettled([
     get(""),
     get("/readme", "application/vnd.github.raw+json"),
-    get("/contents/"),
     get("/languages"),
   ]);
   const ok = (r: PromiseSettledResult<Response>) => (r.status === "fulfilled" && r.value.ok ? r.value : null);
@@ -57,6 +91,8 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
   const meta = ok(repoRes);
   if (!meta) return null;
   const parts: string[] = [];
+  const read: string[] = [];
+  let picked: Picked[] = [];
   let pushedAt: string | null = null;
   let fullName = `${owner}/${repo}`;
   try {
@@ -82,19 +118,32 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
         );
       }
     }
-    const root = ok(rootRes);
-    if (root) {
-      const entries: { name: string; type: string }[] = await root.json();
-      if (Array.isArray(entries)) {
-        parts.push(`Top-level files: ${entries.map((e) => (e.type === "dir" ? `${e.name}/` : e.name)).join(", ")}`);
+    const readme = ok(readmeRes);
+    if (readme) read.push("README");
+    parts.push(readme ? `README:\n${(await readme.text()).slice(0, 4000)}` : "README: none found");
+
+    // The whole file list in one call, then the files worth reading.
+    const branch = typeof data.default_branch === "string" ? data.default_branch : "main";
+    const treeRes = await get(`/git/trees/${encodeURIComponent(branch)}?recursive=1`).catch(() => null);
+    if (treeRes?.ok) {
+      const tree = (await treeRes.json()) as { tree?: TreeEntry[]; truncated?: boolean };
+      const entries = Array.isArray(tree.tree) ? tree.tree : [];
+      const stats = treeStats(entries);
+      parts.push(
+        `File tree: ${stats.files} files, ${stats.sourceFiles} source, ${stats.testFiles} test, ${stats.ciWorkflows} CI workflow(s)${tree.truncated ? " (very large repo, list truncated)" : ""}`,
+        `Top-level: ${[...new Set(entries.map((e) => e.path.split("/")[0]))].slice(0, 40).join(", ")}`,
+      );
+      const files = await readRawFiles(owner, repo, branch, pickFiles(entries), timeoutMs);
+      picked = files;
+      for (const f of files) {
+        read.push(f.path);
+        parts.push(`FILE ${f.path} (${f.role}):\n${f.text}`);
       }
     }
-    const readme = ok(readmeRes);
-    parts.push(readme ? `README:\n${(await readme.text()).slice(0, 4000)}` : "README: none found");
   } catch {
     // Keep whatever was collected before the failure.
   }
-  return parts.length ? { text: parts.join("\n"), pushedAt, fullName } : null;
+  return parts.length ? { text: parts.join("\n\n"), pushedAt, fullName, read, depth: readDepth(picked) } : null;
 }
 
 // Follows redirects by hand so every hop's URL is re-checked; the pinned

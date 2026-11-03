@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { toMarkdown, verdict } from "@/app/report";
+import { groundingNote, toMarkdown, verdict } from "@/app/report";
+import { normalizeReview } from "@/lib/review-types";
 import type { Review } from "@/lib/review-types";
 
 const review: Review = {
   score: 7,
   summary: "A small library.",
-  strengths: ["Tested"],
+  strengths: [{ title: "Tested", detail: "", evidence: "" }],
   improvements: [],
-  roadmap: ["Add a changelog", "Ship v2"],
+  roadmap: [
+    { title: "Add a changelog", detail: "Users can see what changed.", evidence: "" },
+    { title: "Ship v2", detail: "", evidence: "package.json" },
+  ],
   breakdown: { code_quality: 8, originality: 5, completeness: 7, documentation: 9 },
   references: [],
   one_liner: "",
@@ -25,10 +29,26 @@ describe("verdict", () => {
 describe("toMarkdown", () => {
   it("includes the score table and skips empty sections", () => {
     const md = toMarkdown(review, "a/b");
-    expect(md).toContain("## Review: a/b (7/10, Solid)");
+    expect(md).toContain("## Review: a/b (7/10)");
     expect(md).toContain("| 8/10 | 5/10 | 7/10 | 9/10 |");
-    expect(md).toContain("1. Add a changelog\n2. Ship v2");
+    expect(md).toContain("1. **Add a changelog**: Users can see what changed.\n2. **Ship v2** _(package.json)_");
     expect(md).not.toContain("Fix next");
     expect(md).not.toContain("Worth studying");
+  });
+});
+
+describe("older saved reviews", () => {
+  it("turn plain-sentence lists into title-only items", () => {
+    const old = { ...review, strengths: ["Has tests", ""] } as unknown as typeof review;
+    expect(normalizeReview(old).strengths).toEqual([{ title: "Has tests", detail: "", evidence: "" }]);
+  });
+});
+
+describe("groundingNote", () => {
+  it("states how much was read, from the server's facts", () => {
+    const deep = { ...review, grounded: { repository: true, liveSite: false, read: ["README", "package.json", "src/a.ts", "src/b.ts"], depth: "deep" as const } };
+    expect(groundingNote(deep, "repo")).toEqual({ label: "Deep read", note: expect.stringContaining("3 project files") });
+    expect(groundingNote(review, "repo").label).toBe("Surface read");
+    expect(groundingNote(review, "site").label).toBe("Site only");
   });
 });
