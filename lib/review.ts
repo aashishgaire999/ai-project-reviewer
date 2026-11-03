@@ -110,6 +110,9 @@ const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-3.5-flash
   .filter(Boolean);
 
 export class InvalidKeyError extends Error {}
+// Every attempt was refused because the key's quota is used up.
+export class QuotaError extends Error {}
+export const isQuota = (error: unknown) => /RESOURCE_EXHAUSTED|quota/i.test(String((error as Error)?.message || error));
 const isInvalidKey = (error: unknown) => /API_KEY_INVALID|API key not valid/i.test(String((error as Error)?.message || error));
 
 export const isTransient = (error: unknown) =>
@@ -119,7 +122,8 @@ export const isTransient = (error: unknown) =>
 
 // Tries the main model twice, then the lighter fallbacks, which are rarely
 // overloaded. Returns null rather than inventing a review if all attempts
-// fail, and throws InvalidKeyError when the key itself is rejected.
+// fail, throws InvalidKeyError when the key itself is rejected, and
+// QuotaError when every attempt hit the key's quota.
 export async function generateReview(input: ReviewInput, apiKey: string, deadline: number): Promise<Review | null> {
   const ai = new GoogleGenAI({ apiKey });
   const prompt = buildPrompt(input);
@@ -131,10 +135,17 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
     ...(input.coverage ? { coverage: input.coverage } : {}),
   };
   const attempts = [PRIMARY_MODEL, PRIMARY_MODEL, ...FALLBACK_MODELS];
+  let tried = 0;
+  let quotaFailures = 0;
+  const exhausted = new Set<string>();
 
   for (const [index, model] of attempts.entries()) {
     const remaining = deadline - Date.now();
     if (remaining < 4_000) break;
+    // A model whose quota is used up won't recover seconds later; the
+    // fallback models have their own quotas, so try those instead.
+    if (exhausted.has(model)) continue;
+    tried++;
     try {
       const response = await Promise.race([
         ai.models.generateContent({ model, contents: prompt, config: { responseMimeType: "application/json" } }),
@@ -144,9 +155,15 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
     } catch (error) {
       if (isInvalidKey(error)) throw new InvalidKeyError("Gemini rejected the API key");
       console.error("AI review attempt failed", { attempt: index + 1, model, error: String(error).slice(0, 300) });
+      if (isQuota(error)) {
+        quotaFailures++;
+        exhausted.add(model);
+        continue;
+      }
       if (!isTransient(error)) break;
       if (index === 0) await new Promise((resolve) => setTimeout(resolve, 1_500));
     }
   }
+  if (tried > 0 && quotaFailures === tried) throw new QuotaError("Gemini quota used up");
   return null;
 }

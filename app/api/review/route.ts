@@ -2,7 +2,7 @@ import { fetchGithubContext, fetchLiveSiteContext } from "@/lib/context";
 import { encodeEvent, type ReviewEvent } from "@/lib/events";
 import { createLimiter } from "@/lib/rate-limit";
 import { sharedPipeline } from "@/lib/redis";
-import { generateReview, InvalidKeyError } from "@/lib/review";
+import { generateReview, InvalidKeyError, QuotaError } from "@/lib/review";
 import type { SavedReview } from "@/lib/review-types";
 import { parseGithubRepo, parsePublicHttpsUrl } from "@/lib/safe-url";
 import { canReuse, createStore, subjectForRepo, subjectForSite } from "@/lib/store";
@@ -14,6 +14,17 @@ const REVIEW_BUDGET_MS = 50_000;
 const redis = sharedPipeline();
 const store = redis ? createStore(redis) : null;
 const serverKeyLimit = createLimiter(Number(process.env.REVIEWS_PER_HOUR) || 5, 60 * 60 * 1000, redis);
+// A ceiling on AI reviews per day across all visitors on the server's key,
+// so a busy day can't run up the key's quota (or a bill, if billing is on).
+// Saved reviews and visitors' own keys don't count.
+const DAILY_LIMIT = Number(process.env.DAILY_REVIEW_LIMIT) || 50;
+const dailyLimit = createLimiter(DAILY_LIMIT, 26 * 60 * 60 * 1000, redis);
+const utcDay = () => new Date().toISOString().slice(0, 10);
+const hoursUntilUtcMidnight = () => {
+  const now = new Date();
+  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return Math.max(1, Math.ceil((midnight - now.getTime()) / 3_600_000));
+};
 
 const fail = (status: number, error: string) => Response.json({ error }, { status });
 
@@ -86,6 +97,13 @@ export async function POST(request: Request) {
           if (!allowed) {
             return error(`Free review limit reached. Try again in ${Math.ceil(retryAfterSeconds / 60)} min, or paste your own Gemini key.`);
           }
+          // The key is per UTC day, so the count starts over at midnight UTC.
+          const today = await dailyLimit(`day:${utcDay()}`);
+          if (!today.allowed) {
+            return error(
+              `Today's free reviews are used up. They reset in about ${hoursUntilUtcMidnight()} h (midnight UTC). Come back then, or paste your own Gemini key under More options.`,
+            );
+          }
         }
 
         send({ type: "step", step: "review", status: "running" });
@@ -115,7 +133,13 @@ export async function POST(request: Request) {
         send({ type: "result", review, subject, reviewedAt: record.reviewedAt, reused: false });
       } catch (e) {
         send({ type: "step", step: "review", status: "failed" });
-        if (e instanceof InvalidKeyError) {
+        if (e instanceof QuotaError) {
+          error(
+            visitorKey
+              ? "Your Gemini key's free quota is used up for now. Try again later or use a different key."
+              : "The free AI quota is used up for now. Try again tomorrow, or paste your own Gemini key under More options.",
+          );
+        } else if (e instanceof InvalidKeyError) {
           error(visitorKey ? "That Gemini API key isn't valid. Check it and try again." : "The server's Gemini key is misconfigured.");
         } else {
           console.error("Review failed", e);
