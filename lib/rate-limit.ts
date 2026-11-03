@@ -11,10 +11,18 @@ export type LimitResult = { allowed: boolean; retryAfterSeconds: number };
 export type Limiter = (key: string) => Promise<LimitResult>;
 
 export function createRateLimiter(limit: number, windowMs: number, now: () => number = Date.now) {
+  return createMemoryLimiter(limit, windowMs, now).check;
+}
+
+// Exposes the map size so tests can see that expired entries are swept.
+export function createMemoryLimiter(limit: number, windowMs: number, now: () => number = Date.now) {
   const hits = new Map<string, { count: number; resetAt: number }>();
-  return function check(key: string): LimitResult {
+  let checks = 0;
+  function check(key: string): LimitResult {
     const t = now();
-    if (hits.size > 10_000) {
+    // Sweep expired windows regularly, and at once if the map grows large,
+    // so memory tracks current visitors rather than everyone ever seen.
+    if (++checks % 200 === 0 || hits.size > 10_000) {
       for (const [k, v] of hits) if (v.resetAt <= t) hits.delete(k);
     }
     const entry = hits.get(key);
@@ -27,7 +35,8 @@ export function createRateLimiter(limit: number, windowMs: number, now: () => nu
     }
     entry.count++;
     return { allowed: true, retryAfterSeconds: 0 };
-  };
+  }
+  return { check, size: () => hits.size };
 }
 
 // Fixed window in Redis: create the counter with an expiry if it doesn't

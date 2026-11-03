@@ -46,12 +46,27 @@ export async function POST(request: Request) {
   const share = body.share !== false;
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const deadline = Date.now() + REVIEW_BUDGET_MS;
+  // Fires when the visitor leaves or cancels (closes the tab, clicks the
+  // logo). Work stops at the next checkpoint, and above all before the
+  // Gemini call, which is billed once it reaches Google even if cancelled.
+  const cancel = new AbortController();
+  request.signal.addEventListener("abort", () => cancel.abort(), { once: true });
 
   // Validation errors above return plain JSON with a status code. From here
   // on the response is a stream of progress events ending in a result or error.
   const stream = new ReadableStream<Uint8Array>({
+    cancel() {
+      cancel.abort();
+    },
     async start(controller) {
-      const send = (event: ReviewEvent) => controller.enqueue(encodeEvent(event));
+      const send = (event: ReviewEvent) => {
+        if (cancel.signal.aborted) return;
+        try {
+          controller.enqueue(encodeEvent(event));
+        } catch {
+          cancel.abort(); // the stream was closed from the other side
+        }
+      };
       const error = (message: string) => send({ type: "error", error: message });
       try {
         send({ type: "step", step: "repo", status: repo ? "running" : "skipped" });
@@ -85,6 +100,8 @@ export async function POST(request: Request) {
         const subject = repo ? subjectForRepo(owner || repo.owner, name || repo.repo) : subjectForSite(liveUrl!);
         const version = github?.pushedAt ?? null;
 
+        if (cancel.signal.aborted) return;
+
         // Same subject, same version: hand back the saved review. Re-running
         // would only give a different number for the same code.
         const saved = store ? await store.get(subject.key).catch(() => null) : null;
@@ -94,6 +111,9 @@ export async function POST(request: Request) {
           send({ type: "result", review: saved.review, subject: saved.subject, reviewedAt: saved.reviewedAt, reused: true });
           return;
         }
+
+        // Checked again here so a cancelled review never uses up a limit.
+        if (cancel.signal.aborted) return;
 
         // A visitor's own key is used for this one request and never stored.
         // The server's key, if configured, is rate limited per IP.
@@ -114,6 +134,7 @@ export async function POST(request: Request) {
           }
         }
 
+        if (cancel.signal.aborted) return;
         send({ type: "step", step: "review", status: "running" });
         const review = await generateReview(
           {
@@ -129,6 +150,7 @@ export async function POST(request: Request) {
           },
           apiKey,
           deadline,
+          cancel.signal,
         );
         if (!review) {
           send({ type: "step", step: "review", status: "failed" });
@@ -154,7 +176,11 @@ export async function POST(request: Request) {
           error("Something went wrong on the server. Try again.");
         }
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // already closed by a cancel
+        }
       }
     },
   });
