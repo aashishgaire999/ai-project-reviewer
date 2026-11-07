@@ -6,7 +6,7 @@ import { CATEGORIES, type Category } from "./review-types";
 
 // Bump when scoring or how much code is read changes, so saved reviews made
 // under older rules are redone instead of reused.
-export const SCORING_VERSION = 3;
+export const SCORING_VERSION = 4;
 
 const WEIGHTS: Record<Category, number> = { code_quality: 0.35, completeness: 0.25, documentation: 0.2, originality: 0.2 };
 
@@ -17,11 +17,13 @@ export type Breakdown = Record<Category, number | null>;
 export type Facts = {
   testFiles: number | null;
   ciWorkflows: number | null;
+  // The most recent completed CI run on the default branch failed.
+  latestCiFailed: boolean | null;
   readme: boolean | null;
   sourceFilesRead: number | null;
 };
 
-export const UNKNOWN_FACTS: Facts = { testFiles: null, ciWorkflows: null, readme: null, sourceFilesRead: null };
+export const UNKNOWN_FACTS: Facts = { testFiles: null, ciWorkflows: null, latestCiFailed: null, readme: null, sourceFilesRead: null };
 
 export function applyCaps(breakdown: Breakdown, facts: Facts) {
   const result = { ...breakdown };
@@ -42,6 +44,7 @@ export function applyCaps(breakdown: Breakdown, facts: Facts) {
     cap("code_quality", 7, "no test files found");
   }
   if (facts.ciWorkflows === 0) cap("completeness", 8, "no CI workflow found");
+  if (facts.latestCiFailed === true) cap("completeness", 7, "the latest CI run failed");
   if (facts.readme === false) cap("documentation", 2, "no README");
   return { breakdown: result, adjustments };
 }

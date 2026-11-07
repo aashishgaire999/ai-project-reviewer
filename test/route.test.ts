@@ -27,7 +27,7 @@ vi.mock("@/lib/context", async (original) => {
         read: ["README", "src/index.ts"],
         depth: "full",
         coverage: { read: 1, total: 1 },
-        facts: { testFiles: 0, ciWorkflows: 1, readme: true, sourceFilesRead: 1 },
+        facts: { testFiles: 0, ciWorkflows: 1, latestCiFailed: null, readme: true, sourceFilesRead: 1 },
       };
     },
     fetchLiveSiteContext: async () => null,

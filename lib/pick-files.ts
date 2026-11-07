@@ -14,8 +14,10 @@ const SKIP_DIRS = new Set([
 const LOCKFILES = new Set(["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "Cargo.lock", "poetry.lock", "Pipfile.lock", "go.sum", "composer.lock", "Gemfile.lock"]);
 const MANIFESTS = [
   "package.json", "pyproject.toml", "requirements.txt", "setup.py", "go.mod", "Cargo.toml", "pom.xml",
-  "build.gradle", "build.gradle.kts", "composer.json", "Gemfile", "pubspec.yaml", "mix.exs", "Package.swift",
+  "build.gradle", "build.gradle.kts", "composer.json", "Gemfile", "pubspec.yaml", "mix.exs", "Package.swift", "deno.json",
 ];
+const MANIFEST_NAMES = new Set(MANIFESTS);
+const MAX_APP_MANIFESTS = 6;
 const CODE_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|kts|rb|php|cs|cpp|cc|c|h|hpp|swift|dart|vue|svelte|scala|ex|exs|lua|sh)$/i;
 // Markup counts as source only when a repo has nothing else (plain HTML/CSS sites).
 const MARKUP_EXT = /\.(html|css|scss)$/i;
@@ -63,31 +65,70 @@ export const FILE_READ_BYTES = 20_000;
 export const MAX_SOURCE_FILES = 80;
 const MAX_TESTS = 3;
 
+// Folders that are apps of their own: each holds a manifest (package.json,
+// pyproject.toml, ...) up to three levels down (e.g. supabase/functions/x). A repo with two or more is a
+// multi-app repo, e.g. a frontend, an API and edge functions side by side.
+export function appRoots(files: TreeEntry[]): string[] {
+  const roots = new Set<string>();
+  for (const f of files) {
+    const parts = f.path.split("/");
+    const name = parts[parts.length - 1];
+    if (parts.length >= 2 && parts.length <= 4 && MANIFEST_NAMES.has(name)) roots.add(parts.slice(0, -1).join("/"));
+  }
+  // Keep the outermost folder when one app sits inside another.
+  return [...roots].filter((r) => ![...roots].some((o) => o !== r && r.startsWith(`${o}/`))).sort();
+}
+
+const rootOf = (path: string, roots: string[]) => roots.find((r) => path.startsWith(`${r}/`)) ?? "";
+
+// Takes one item from each group in turn until every group is empty, so no
+// single app can use up the whole budget.
+function roundRobin<T>(groups: T[][]): T[] {
+  const out: T[] = [];
+  for (let i = 0; groups.some((g) => i < g.length); i++) for (const g of groups) if (i < g.length) out.push(g[i]);
+  return out;
+}
+
 // Every source file when the repo is small enough; otherwise the most central
-// ones until the budget is spent.
+// ones until the budget is spent, shared fairly between the apps of a
+// multi-app repo.
 export function pickFiles(tree: TreeEntry[], { budget = SOURCE_BUDGET_BYTES, maxSources = MAX_SOURCE_FILES } = {}): Picked[] {
   const files = readable(tree);
   const picked: Picked[] = [];
+  const roots = appRoots(files);
+  const multiApp = roots.length >= 2;
 
   const manifest = MANIFESTS.map((name) => files.find((f) => f.path === name)).find(Boolean)
     ?? MANIFESTS.map((name) => files.find((f) => f.path.split("/").length === 2 && f.path.endsWith(`/${name}`))).find(Boolean);
   if (manifest) picked.push({ path: manifest.path, role: "manifest" });
+  if (multiApp) {
+    for (const root of roots.slice(0, MAX_APP_MANIFESTS)) {
+      const m = MANIFESTS.map((name) => files.find((f) => f.path === `${root}/${name}`)).find(Boolean);
+      if (m && m.path !== manifest?.path) picked.push({ path: m.path, role: "manifest" });
+    }
+  }
 
   const ci = files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/i.test(f.path)).sort((a, b) => (b.size ?? 0) - (a.size ?? 0))[0];
   if (ci) picked.push({ path: ci.path, role: "ci" });
 
-  const tests = files
-    .filter((f) => CODE_EXT.test(f.path) && TEST.test(f.path))
-    .sort((a, b) => Math.abs((a.size ?? 0) - 4_000) - Math.abs((b.size ?? 0) - 4_000))
-    .slice(0, MAX_TESTS);
-  for (const t of tests) picked.push({ path: t.path, role: "test" });
+  const byTestSize = (a: TreeEntry, b: TreeEntry) => Math.abs((a.size ?? 0) - 4_000) - Math.abs((b.size ?? 0) - 4_000);
+  const allTests = files.filter((f) => CODE_EXT.test(f.path) && TEST.test(f.path));
+  const testGroups = multiApp
+    ? [...roots, ""].map((r) => allTests.filter((t) => rootOf(t.path, roots) === r).sort(byTestSize))
+    : [[...allTests].sort(byTestSize)];
+  for (const t of roundRobin(testGroups).slice(0, multiApp ? MAX_TESTS + 1 : MAX_TESTS)) picked.push({ path: t.path, role: "test" });
 
-  const ranked = sourceCandidates(files)
-    .map((f) => ({ f, score: sourceScore(f.path, f.size ?? 0) }))
-    .sort((a, b) => b.score - a.score || (b.f.size ?? 0) - (a.f.size ?? 0));
+  const rank = (list: TreeEntry[]) =>
+    list
+      .map((f) => ({ f, score: sourceScore(f.path, f.size ?? 0) }))
+      .sort((a, b) => b.score - a.score || (b.f.size ?? 0) - (a.f.size ?? 0))
+      .map((x) => x.f);
+  const sources = sourceCandidates(files);
+  const ordered = multiApp ? roundRobin([...roots, ""].map((r) => rank(sources.filter((f) => rootOf(f.path, roots) === r)))) : rank(sources);
+
   let left = budget;
   let count = 0;
-  for (const { f } of ranked) {
+  for (const f of ordered) {
     if (count >= maxSources) break;
     const cost = Math.min(f.size ?? 0, FILE_READ_BYTES);
     if (cost > left) continue; // a smaller file may still fit
@@ -96,6 +137,15 @@ export function pickFiles(tree: TreeEntry[], { budget = SOURCE_BUDGET_BYTES, max
     count++;
   }
   return picked;
+}
+
+// The biggest source files, a common sign of modules doing too much.
+export function largestSources(tree: TreeEntry[], n = 5, minBytes = 20_000) {
+  return sourceCandidates(tree.filter((e) => e.type === "blob" && !skipped(e.path)))
+    .filter((f) => (f.size ?? 0) >= minBytes)
+    .sort((a, b) => (b.size ?? 0) - (a.size ?? 0))
+    .slice(0, n)
+    .map((f) => ({ path: f.path, kb: Math.round((f.size ?? 0) / 1024) }));
 }
 
 export function treeStats(tree: TreeEntry[]) {

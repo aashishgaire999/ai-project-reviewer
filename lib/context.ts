@@ -1,5 +1,6 @@
 import { Agent, fetch as pinnedFetch } from "undici";
-import { FILE_READ_BYTES, pickFiles, readDepth, SOURCE_BUDGET_BYTES, treeStats, type Picked, type TreeEntry } from "./pick-files";
+import { commitMessageQuality, hygieneLines, summarizeCi, type CiRun } from "./hygiene";
+import { FILE_READ_BYTES, largestSources, pickFiles, readDepth, SOURCE_BUDGET_BYTES, treeStats, type Picked, type TreeEntry } from "./pick-files";
 import type { Coverage, Depth } from "./review-types";
 import { UNKNOWN_FACTS, type Facts } from "./scoring";
 import { extractMeta } from "./html-meta";
@@ -138,10 +139,12 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
 
   const get = (path: string, accept?: string) =>
     fetchWithTimeout(`${base}${path}`, timeoutMs, { headers: accept ? { ...headers, Accept: accept } : headers });
-  const [repoRes, readmeRes, langRes] = await Promise.allSettled([
+  const [repoRes, readmeRes, langRes, commitsRes, runsRes] = await Promise.allSettled([
     get(""),
     get("/readme", "application/vnd.github.raw+json"),
     get("/languages"),
+    get("/commits?per_page=30"),
+    get("/actions/runs?per_page=20&exclude_pull_requests=true"),
   ]);
   const ok = (r: PromiseSettledResult<Response>) => (r.status === "fulfilled" && r.value.ok ? r.value : null);
 
@@ -189,6 +192,13 @@ export async function fetchGithubContext(owner: string, repo: string, timeoutMs:
       const tree = (await treeRes.json()) as { tree?: TreeEntry[]; truncated?: boolean };
       const entries = Array.isArray(tree.tree) ? tree.tree : [];
       const stats = treeStats(entries);
+      // Hygiene: CI history, commit messages and oversized files.
+      const runs = ok(runsRes) ? ((await ok(runsRes)!.json().catch(() => null)) as { workflow_runs?: CiRun[] } | null) : null;
+      const ci = runs?.workflow_runs ? summarizeCi(runs.workflow_runs, branch) : null;
+      if (ci) facts.latestCiFailed = ci.latest === "failure" || ci.latest === "timed_out";
+      const commitList = ok(commitsRes) ? ((await ok(commitsRes)!.json().catch(() => null)) as { commit?: { message?: string } }[] | null) : null;
+      const commits = Array.isArray(commitList) ? commitMessageQuality(commitList.map((c) => c.commit?.message ?? "")) : null;
+      parts.push(...hygieneLines(ci, commits, largestSources(entries)));
       // A truncated tree may be missing files, so it can't prove anything is absent.
       if (!tree.truncated) {
         facts.testFiles = stats.testFiles;

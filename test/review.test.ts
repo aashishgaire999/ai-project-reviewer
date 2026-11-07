@@ -17,7 +17,7 @@ describe("parseReview", () => {
     expect(review.score).toBe(4);
     expect(review.strengths).toEqual([{ title: "Tests", detail: "", evidence: "" }]);
     expect(review.improvements).toEqual([]);
-    expect(review.grounded).toMatchObject({ ...grounded, scoring: 3, adjustments: [] });
+    expect(review.grounded).toMatchObject({ ...grounded, scoring: 4, adjustments: [] });
   });
   it("accepts numeric strings and treats missing categories as not assessed", () => {
     const review = parseReview(JSON.stringify({ breakdown: bd("9", 99, null, "lots") }), grounded);
@@ -47,7 +47,7 @@ describe("parseReview", () => {
     expect(isTransient(new Error("API key not valid"))).toBe(false);
   });
   it("applies the server's caps whatever the model says", () => {
-    const review = parseReview(JSON.stringify({ breakdown: bd(9, 7, 9, 9) }), grounded, { testFiles: 0, ciWorkflows: 1, readme: true, sourceFilesRead: 4 });
+    const review = parseReview(JSON.stringify({ breakdown: bd(9, 7, 9, 9) }), grounded, { testFiles: 0, ciWorkflows: 1, latestCiFailed: null, readme: true, sourceFilesRead: 4 });
     expect(review.breakdown).toEqual({ code_quality: 7, originality: 7, completeness: 6, documentation: 9 });
     expect(review.grounded.adjustments).toEqual(["Completeness capped at 6: no test files found", "Code quality capped at 7: no test files found"]);
   });
@@ -76,6 +76,8 @@ describe("structured items", () => {
     expect(prompt).toContain('"evidence"');
     expect(prompt).toContain("most impactful first");
     expect(prompt).toContain("Judge code quality from the FILE contents");
+    expect(prompt).toContain("CHECK CLAIMS AGAINST CODE");
+    expect(prompt).toContain("middleware imported but never registered");
   });
 });
 
