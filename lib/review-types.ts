@@ -20,6 +20,8 @@ export type Review = {
   roadmap: Item[];
   // null means "not assessed", e.g. code quality when only a website was given.
   breakdown: Record<Category, number | null>;
+  // One sentence per category on why it got its score. Missing on older reviews.
+  reasons?: Partial<Record<Category, string>>;
   references: Item[];
   one_liner: string;
   grounded: {
