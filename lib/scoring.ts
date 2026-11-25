@@ -6,7 +6,7 @@ import { CATEGORIES, type Category } from "./review-types";
 
 // Bump when scoring or how much code is read changes, so saved reviews made
 // under older rules are redone instead of reused.
-export const SCORING_VERSION = 4;
+export const SCORING_VERSION = 5;
 
 const WEIGHTS: Record<Category, number> = { code_quality: 0.35, completeness: 0.25, documentation: 0.2, originality: 0.2 };
 

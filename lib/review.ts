@@ -16,6 +16,7 @@ export type ReviewInput = {
 export { CATEGORIES } from "./review-types";
 export type { Category, Review } from "./review-types";
 import { CATEGORIES, toItems, type Category, type Coverage, type Depth, type Review } from "./review-types";
+import { readDepth } from "./pick-files";
 import { applyCaps, overallScore, SCORING_VERSION, UNKNOWN_FACTS, type Facts } from "./scoring";
 
 export function buildPrompt({ githubUrl, liveUrl, description, githubContext, liveSiteContext }: ReviewInput) {
@@ -60,6 +61,7 @@ Respond ONLY with JSON in exactly this shape. Every list item is an object:
   "roadmap": [<item>, <item>, <item>],        // in the order to do them
   "strengths": [<item>, <item>, <item>],
   "references": [<item>, <item>],             // open source projects or resources worth studying; evidence is why
+  "reasons": { "code_quality": "<one sentence naming the evidence>", "originality": "<one sentence>", "completeness": "<one sentence>", "documentation": "<one sentence>" },
   "breakdown": { "code_quality": ${siteOnly ? "null" : "<0-10>"}, "originality": <0-10>, "completeness": <0-10>, "documentation": <0-10> },
   "one_liner": "<one sentence on the project's potential>"
 }
@@ -69,6 +71,7 @@ SCORING. Be strict and use the whole 0-10 scale. Most hobby and student projects
 - completeness: 9-10 feature-complete, deployed, tested and with CI; 7-8 main features done with small gaps; 5-6 core works but obvious features, tests or edge cases are missing; 3-4 a prototype; 0-2 a stub.
 - documentation: 9-10 README covers what, why, setup, usage and architecture; 7-8 clear setup and usage; 5-6 brief but usable; 3-4 a title and little else; 0-2 nothing useful.
 - originality: 9-10 a genuinely new idea or approach; 7-8 a familiar idea with a real twist; 5 a common project (todo, weather, chat, clone) done the standard way; 3-4 close to a tutorial; 0-2 a copy.
+Write each reason first, then give that category its score from the reason alone. The four categories measure different things, so they rarely deserve the same number: if you are about to give all four the same score, re-check each against its scale above.
 The overall score is calculated from these four, so make each one honest on its own.`;
 }
 
@@ -93,6 +96,9 @@ export function parseReview(raw: string, grounded: Review["grounded"], facts: Fa
       return [key, Number.isFinite(value) ? clamp(value, 0, 10) : null];
     }),
   ) as Record<Category, number | null>;
+  const reasons = Object.fromEntries(
+    CATEGORIES.map((key) => [key, text(data?.reasons?.[key], 300)] as const).filter(([key, reason]) => reason && rawBreakdown[key] !== null),
+  ) as Partial<Record<Category, string>>;
   const { breakdown, adjustments } = applyCaps(rawBreakdown, facts);
   const score = overallScore(breakdown);
   if (score === null) throw new Error("AI review returned no score");
@@ -103,6 +109,7 @@ export function parseReview(raw: string, grounded: Review["grounded"], facts: Fa
     improvements: toItems(data.improvements),
     roadmap: toItems(data.roadmap),
     breakdown,
+    ...(Object.keys(reasons).length ? { reasons } : {}),
     references: toItems(data.references, 4),
     one_liner: text(data.one_liner, 300),
     grounded: { ...grounded, adjustments, scoring: SCORING_VERSION },
@@ -130,23 +137,87 @@ export const isTransient = (error: unknown) =>
     String((error as Error)?.message || error),
   );
 
+const FILE_BLOCK = /\n\n(?=FILE \S[^\n]* \((?:manifest|ci|test|source)\):\n)/;
+
+// Shortens the repo context to about maxChars by dropping whole files from
+// the end. Files are listed most central first, so the least central go.
+export function trimContext(context: string, maxChars: number) {
+  const [head, ...files] = context.split(FILE_BLOCK);
+  const kept: { path: string; role: string }[] = [];
+  let text = head;
+  let dropped = 0;
+  for (const block of files) {
+    const header = block.match(/^FILE (\S[^\n]*) \((manifest|ci|test|source)\):\n/);
+    if (!header) continue;
+    if (dropped === 0 && text.length + block.length + 2 <= maxChars) {
+      text += `\n\n${block}`;
+      kept.push({ path: header[1], role: header[2] });
+    } else {
+      dropped++;
+    }
+  }
+  return { text, kept, dropped };
+}
+
+const TRIMMED_CONTEXT_CHARS = 60_000;
+const FIRST_ATTEMPT_MS = 30_000;
+const MIN_ATTEMPT_MS = 8_000;
+
+// How long one attempt may take: the first gets a generous share, later
+// ones split what is left, so a slow model can't use up every retry.
+export function attemptTimeout(remainingMs: number, attemptsLeft: number, first: boolean) {
+  const share = first ? FIRST_ATTEMPT_MS : remainingMs / Math.max(1, attemptsLeft);
+  return Math.max(MIN_ATTEMPT_MS, Math.min(remainingMs - 1_000, share));
+}
+
 // Tries the main model twice, then the lighter fallbacks, which are rarely
-// overloaded. Returns null rather than inventing a review if all attempts
-// fail, throws InvalidKeyError when the key itself is rejected, and
-// QuotaError when every attempt hit the key's quota.
+// overloaded. Each attempt has its own time limit and is cancelled when it
+// runs out. After a timeout, or when time is short, the next attempt gets a
+// shortened context, and the review then reports only the files it was sent.
+// Returns null rather than inventing a review if all attempts fail, throws
+// InvalidKeyError when the key itself is rejected, and QuotaError when every
+// attempt hit the key's quota.
 export async function generateReview(input: ReviewInput, apiKey: string, deadline: number, signal?: AbortSignal): Promise<Review | null> {
   const ai = new GoogleGenAI({ apiKey });
-  const prompt = buildPrompt(input);
-  const grounded = {
-    repository: Boolean(input.githubContext),
-    liveSite: Boolean(input.liveSiteContext),
-    read: input.read ?? [],
-    depth: input.depth ?? ("surface" as Depth),
-    ...(input.coverage ? { coverage: input.coverage } : {}),
+  const full = {
+    prompt: buildPrompt(input),
+    grounded: {
+      repository: Boolean(input.githubContext),
+      liveSite: Boolean(input.liveSiteContext),
+      read: input.read ?? [],
+      depth: input.depth ?? ("surface" as Depth),
+      ...(input.coverage ? { coverage: input.coverage } : {}),
+    },
+    facts: input.facts,
+    note: null as string | null,
   };
+  let short: typeof full | null = null;
+  const shortened = () => {
+    if (short || !input.githubContext) return short ?? full;
+    const cut = trimContext(input.githubContext, TRIMMED_CONTEXT_CHARS);
+    if (cut.dropped === 0) return (short = full);
+    const sources = cut.kept.filter((f) => f.role === "source").length;
+    const total = input.coverage?.total ?? sources;
+    // The header still states the full coverage; make it match what is sent.
+    const text = cut.text.replace(/^Coverage: read \d+ of \d+ source files[^\n]*$/m, `Coverage: read ${sources} of ${Math.max(total, sources)} source files (the most central ones).`);
+    short = {
+      prompt: buildPrompt({ ...input, githubContext: text }),
+      grounded: {
+        ...full.grounded,
+        read: [...full.grounded.read.filter((r) => r === "README"), ...cut.kept.map((f) => f.path)],
+        depth: readDepth(sources, total, cut.kept.some((f) => f.role === "manifest")),
+        coverage: { read: sources, total: Math.max(total, sources) },
+      },
+      facts: input.facts ? { ...input.facts, sourceFilesRead: sources } : input.facts,
+      note: `Read ${cut.kept.length} files instead of ${cut.kept.length + cut.dropped}: the AI service was slow`,
+    };
+    return short;
+  };
+
   const attempts = [PRIMARY_MODEL, PRIMARY_MODEL, ...FALLBACK_MODELS];
   let tried = 0;
   let quotaFailures = 0;
+  let timedOut = false;
   const exhausted = new Set<string>();
 
   for (const [index, model] of attempts.entries()) {
@@ -157,15 +228,28 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
     // fallback models have their own quotas, so try those instead.
     if (exhausted.has(model)) continue;
     tried++;
+    const limit = attemptTimeout(remaining, attempts.length - index, index === 0);
+    const use = timedOut || remaining < 25_000 ? shortened() : full;
+    const attempt = new AbortController();
+    const timer = setTimeout(() => attempt.abort(new Error("AI review timed out")), limit);
+    const onCancel = () => attempt.abort();
+    signal?.addEventListener("abort", onCancel, { once: true });
     try {
       const response = await Promise.race([
-        ai.models.generateContent({ model, contents: prompt, config: { responseMimeType: "application/json", abortSignal: signal } }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("AI review timed out")), remaining)),
+        ai.models.generateContent({ model, contents: use.prompt, config: { responseMimeType: "application/json", abortSignal: attempt.signal } }),
+        new Promise<never>((_, reject) => attempt.signal.addEventListener("abort", () => reject(new Error("AI review timed out")), { once: true })),
       ]);
-      return parseReview(response.text ?? "", grounded, input.facts);
-    } catch (error) {
+      const review = parseReview(response.text ?? "", use.grounded, use.facts);
+      if (use.note) review.grounded.adjustments = [...(review.grounded.adjustments ?? []), use.note];
+      return review;
+    } catch (caught) {
+      if (signal?.aborted) return null;
+      // When our timer cancels the call, the SDK may reject with its own
+      // abort error first; it is still a timeout.
+      const error = attempt.signal.aborted ? new Error("AI review timed out") : caught;
       if (isInvalidKey(error)) throw new InvalidKeyError("Gemini rejected the API key");
       console.error("AI review attempt failed", { attempt: index + 1, model, error: String(error).slice(0, 300) });
+      if (/timed out/i.test(String(error))) timedOut = true;
       if (isQuota(error)) {
         quotaFailures++;
         exhausted.add(model);
@@ -177,7 +261,12 @@ export async function generateReview(input: ReviewInput, apiKey: string, deadlin
         continue;
       }
       if (!isTransient(error)) break;
-      if (index === 0) await new Promise((resolve) => setTimeout(resolve, 1_500));
+      // A slow model is not retried at full size: move on to the fallbacks.
+      if (timedOut) exhausted.add(model);
+      else if (index === 0) await new Promise((resolve) => setTimeout(resolve, 1_500));
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onCancel);
     }
   }
   if (tried > 0 && quotaFailures === tried) throw new QuotaError("Gemini quota used up");

@@ -32,6 +32,9 @@ export function toMarkdown(review: Review, repository: string) {
     review.summary,
     review.grounded.read?.length ? `_Read: ${review.grounded.read.join(", ")}_` : "",
     `| ${CATEGORIES.map((c) => LABELS[c]).join(" | ")} |\n|${CATEGORIES.map(() => "---").join("|")}|\n| ${CATEGORIES.map((c) => formatValue(review.breakdown[c])).join(" | ")} |`,
+    review.reasons && Object.keys(review.reasons).length
+      ? `### Why these scores\n${CATEGORIES.filter((c) => review.reasons?.[c]).map((c) => `- **${LABELS[c]}**: ${review.reasons![c]}`).join("\n")}`
+      : "",
     review.improvements.length && `### Fix next\n${list(review.improvements)}`,
     review.roadmap.length && `### Roadmap\n${review.roadmap.map((r, i) => `${i + 1}. ${itemLine(r)}`).join("\n")}`,
     review.strengths.length && `### What's working\n${list(review.strengths)}`,
@@ -276,7 +279,7 @@ export function Report({ review, subject, reviewedAt, reused, onReset }: { revie
             {review.one_liner && <p className="mt-2 text-[var(--text-2)]">{review.one_liner}</p>}
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-2.5">
               {CATEGORIES.map((key, i) => (
-                <div key={key} className="flex items-center justify-between gap-3 border-t border-[var(--hairline)] pt-2.5">
+                <div key={key} title={review.reasons?.[key]} className="flex items-center justify-between gap-3 border-t border-[var(--hairline)] pt-2.5">
                   <dt className="flex items-center gap-2 text-sm">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: `var(--ring-${i + 1})` }} />
                     {LABELS[key]}
